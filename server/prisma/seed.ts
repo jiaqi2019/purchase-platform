@@ -4,15 +4,9 @@ import { generateCategoryCode } from '../src/utils/category-code.js';
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
-  await prisma.appSettings.upsert({
+  await prisma.birthdayReminderSettings.upsert({
     where: { id: 1 },
-    create: {
-      id: 1,
-      birthdayLeadDays: 3,
-      birthdayReminderEnabled: true,
-      reminderHour: 9,
-      reminderMinute: 0,
-    },
+    create: { id: 1, leadDays: 3, enabled: true },
     update: {},
   });
 

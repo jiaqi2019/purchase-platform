@@ -6,24 +6,26 @@ import {
   Form,
   InputNumber,
   Message,
+  Modal,
   Space,
   Switch,
   Table,
   Tag,
 } from '@arco-design/web-react';
 import { api, errMessage } from '../api/http-client';
-import type { AppSettings, BirthdayReminder, PaginatedList } from '../types/api-types';
+import type { BirthdayReminder, BirthdayReminderSettings, PaginatedList } from '../types/api-types';
 import { EllipsisText } from '../components/ellipsis-text';
 import { formatMoney } from '../utils/format';
 import { PAGE_SIZE, paginationTotal } from '../utils/pagination';
 
 export default function BirthdayRemindersPage() {
   const location = useLocation();
-  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [settings, setSettings] = useState<BirthdayReminderSettings | null>(null);
   const [reminders, setReminders] = useState<BirthdayReminder[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
+  const [settingsVisible, setSettingsVisible] = useState(false);
   const [form] = Form.useForm();
 
   const loadReminders = async (p = page) => {
@@ -44,11 +46,11 @@ export default function BirthdayRemindersPage() {
 
   const refreshPage = useCallback(async () => {
     try {
-      const s = await api.get<AppSettings>('/settings');
+      const s = await api.get<BirthdayReminderSettings>('/birthday-reminder-settings');
       setSettings(s);
       form.setFieldsValue({
-        birthdayLeadDays: s.birthdayLeadDays,
-        birthdayReminderEnabled: s.birthdayReminderEnabled,
+        leadDays: s.leadDays,
+        enabled: s.enabled,
       });
     } catch (e) {
       Message.error(errMessage(e));
@@ -60,11 +62,25 @@ export default function BirthdayRemindersPage() {
     void refreshPage();
   }, [location.pathname, refreshPage]);
 
+  const openSettings = () => {
+    if (settings) {
+      form.setFieldsValue({
+        leadDays: settings.leadDays,
+        enabled: settings.enabled,
+      });
+    }
+    setSettingsVisible(true);
+  };
+
   const saveSettings = async () => {
     try {
       const values = await form.validate();
-      const updated = await api.patch<AppSettings>('/settings', values);
+      const updated = await api.patch<BirthdayReminderSettings>(
+        '/birthday-reminder-settings',
+        values,
+      );
       setSettings(updated);
+      setSettingsVisible(false);
       Message.success('设置已保存');
     } catch (e) {
       if (e && typeof e === 'object' && 'error' in e) return;
@@ -102,23 +118,15 @@ export default function BirthdayRemindersPage() {
   return (
     <>
       <h1 className="page-title">生日提醒</h1>
-      <Card title="提醒设置" style={{ marginBottom: 16 }}>
-        <Form form={form} layout="inline">
-          <Form.Item label="提前天数 (n)" field="birthdayLeadDays">
-            <InputNumber min={0} max={365} />
-          </Form.Item>
-          <Form.Item label="启用" field="birthdayReminderEnabled" triggerPropName="checked">
-            <Switch />
-          </Form.Item>
-          <Form.Item>
-            <Space>
-              <Button type="primary" onClick={saveSettings}>
-                保存设置
-              </Button>
-              <Button onClick={runJob}>手动执行任务</Button>
-            </Space>
-          </Form.Item>
-        </Form>
+      <Card style={{ marginBottom: 16 }}>
+        <Space>
+          <Button type="primary" onClick={openSettings}>
+            提醒设置
+          </Button>
+          <Button type="outline" onClick={runJob}>
+            手动执行任务
+          </Button>
+        </Space>
       </Card>
       <Card title="待办列表">
         <Table
@@ -195,6 +203,22 @@ export default function BirthdayRemindersPage() {
           ]}
         />
       </Card>
+      <Modal
+        title="提醒设置"
+        visible={settingsVisible}
+        onOk={saveSettings}
+        onCancel={() => setSettingsVisible(false)}
+        unmountOnExit
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item label="提前天数 (n)" field="leadDays">
+            <InputNumber min={0} max={365} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item label="启用生日提醒" field="enabled" triggerPropName="checked">
+            <Switch />
+          </Form.Item>
+        </Form>
+      </Modal>
     </>
   );
 }

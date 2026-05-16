@@ -9,12 +9,12 @@ export interface BirthdayJobResult {
 }
 
 export async function runBirthdayReminderJob(): Promise<BirthdayJobResult> {
-  const settings = await prisma.appSettings.findUnique({ where: { id: 1 } });
-  if (!settings?.birthdayReminderEnabled) {
+  const settings = await prisma.birthdayReminderSettings.findUnique({ where: { id: 1 } });
+  if (!settings?.enabled) {
     return { skipped: true, reason: 'disabled', created: 0 };
   }
 
-  const leadDays = settings.birthdayLeadDays;
+  const leadDays = settings.leadDays;
   const buyers = await prisma.buyer.findMany({
     where: { birthday: { not: null } },
   });

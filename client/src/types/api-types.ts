@@ -84,12 +84,10 @@ export interface LeaderboardEntry {
   totalSpent: number;
 }
 
-export interface AppSettings {
+export interface BirthdayReminderSettings {
   id: number;
-  birthdayLeadDays: number;
-  birthdayReminderEnabled: boolean;
-  reminderHour: number;
-  reminderMinute: number;
+  leadDays: number;
+  enabled: boolean;
   updatedAt: string;
 }
 

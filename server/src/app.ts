@@ -9,7 +9,7 @@ import brandsRouter from './routes/brands';
 import productsRouter from './routes/products';
 import purchasesRouter from './routes/purchases';
 import statsRouter from './routes/stats';
-import settingsRouter from './routes/settings';
+import birthdayReminderSettingsRouter from './routes/birthday-reminder-settings';
 import remindersRouter from './routes/birthday-reminders';
 import internalRouter from './routes/internal';
 
@@ -40,7 +40,7 @@ api.use(brandsRouter.routes(), brandsRouter.allowedMethods());
 api.use(productsRouter.routes(), productsRouter.allowedMethods());
 api.use(purchasesRouter.routes(), purchasesRouter.allowedMethods());
 api.use(statsRouter.routes(), statsRouter.allowedMethods());
-api.use(settingsRouter.routes(), settingsRouter.allowedMethods());
+api.use(birthdayReminderSettingsRouter.routes(), birthdayReminderSettingsRouter.allowedMethods());
 api.use(remindersRouter.routes(), remindersRouter.allowedMethods());
 api.use(internalRouter.routes(), internalRouter.allowedMethods());
 

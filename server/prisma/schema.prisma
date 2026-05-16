@@ -101,15 +101,13 @@ model PurchaseItem {
   @@map("purchase_items")
 }
 
-model AppSettings {
-  id                      Int      @id @default(1)
-  birthdayLeadDays        Int      @default(3) @map("birthday_lead_days")
-  birthdayReminderEnabled Boolean  @default(true) @map("birthday_reminder_enabled")
-  reminderHour            Int      @default(9) @map("reminder_hour")
-  reminderMinute          Int      @default(0) @map("reminder_minute")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+model BirthdayReminderSettings {
+  id        Int      @id @default(1)
+  leadDays  Int      @default(3) @map("lead_days")
+  enabled   Boolean  @default(true)
+  updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@map("app_settings")
+  @@map("birthday_reminder_settings")
 }
 
 enum ReminderStatus {
