@@ -1,0 +1,55 @@
+body {
+  margin: 0;
+  background: var(--color-fill-2);
+}
+
+.app-layout {
+  min-height: 100vh;
+}
+
+.app-sider {
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+}
+
+.app-brand {
+  box-sizing: border-box;
+  height: 72px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.app-brand__icon {
+  flex-shrink: 0;
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+}
+
+.app-brand__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-text-1);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.app-content {
+  padding: 20px 24px;
+}
+
+.page-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.cell-nowrap {
+  white-space: nowrap;
+}
