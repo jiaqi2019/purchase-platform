@@ -2,6 +2,7 @@ import Router from '@koa/router';
 import type { Context } from 'koa';
 import prisma from '../prisma';
 import { serialize } from '../utils/serialize';
+import { parsePageQuery, toPaginatedResult } from '../utils/pagination';
 
 const router = new Router({ prefix: '/stats' });
 
@@ -12,7 +13,7 @@ interface LeaderboardRow {
 }
 
 router.get('/leaderboard', async (ctx: Context) => {
-  const limit = Math.min(Number(ctx.query.limit) || 20, 100);
+  const { pageSize, skip, take } = parsePageQuery(ctx);
 
   const rows = await prisma.$queryRaw<LeaderboardRow[]>`
     SELECT b.id AS buyerId, b.name AS name,
@@ -23,16 +24,16 @@ router.get('/leaderboard', async (ctx: Context) => {
     GROUP BY b.id, b.name
     HAVING totalSpent > 0
     ORDER BY totalSpent DESC
-    LIMIT ${limit}
+    LIMIT ${take} OFFSET ${skip}
   `;
 
-  const data = rows.map((r) => ({
+  const mapped = rows.map((r) => ({
     buyerId: r.buyerId.toString(),
     name: r.name,
     totalSpent: Number(r.totalSpent),
   }));
 
-  ctx.body = { data: serialize(data) };
+  ctx.body = { data: serialize(toPaginatedResult(mapped, pageSize)) };
 });
 
 export default router;

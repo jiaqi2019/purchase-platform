@@ -11,6 +11,11 @@ export interface Buyer {
   updatedAt: string;
 }
 
+export interface PaginatedList<T> {
+  items: T[];
+  hasMore: boolean;
+}
+
 export interface ProductCategory {
   id: Id;
   name: string;
@@ -66,9 +71,11 @@ export interface Purchase {
 }
 
 export interface PurchaseQueryResult {
-  buyers: Buyer[];
-  purchases: Purchase[];
+  items: Purchase[];
+  hasMore: boolean;
   grandTotal: number;
+  purchaseCount: number;
+  itemCount: number;
 }
 
 export interface LeaderboardEntry {

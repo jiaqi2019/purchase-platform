@@ -1,11 +1,18 @@
 import Router from '@koa/router';
 import type { Context } from 'koa';
+import type { Prisma } from '@prisma/client';
 import prisma from '../prisma';
 import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
 import { parsePhone } from '../utils/phone';
+import { parsePageQuery, toPaginatedResult } from '../utils/pagination';
 
 const router = new Router({ prefix: '/buyers' });
+
+function buyerSearchWhere(q: string): Prisma.BuyerWhereInput | undefined {
+  if (!q) return undefined;
+  return { name: { contains: q } };
+}
 
 interface BuyerBody {
   name?: string;
@@ -15,25 +22,44 @@ interface BuyerBody {
   phone?: string | null;
 }
 
+async function assertBuyerUniqueOnCreate(name: string, phone: string | null): Promise<void> {
+  const existing = await prisma.buyer.findFirst({
+    where: { name, phone },
+    select: { id: true },
+  });
+  if (existing) {
+    throw new AppError(409, 'CONFLICT', '已存在相同姓名和手机号的购买者，无法新建');
+  }
+}
+
 router.get('/', async (ctx: Context) => {
   const q = typeof ctx.query.q === 'string' ? ctx.query.q.trim() : '';
-  const buyers = await prisma.buyer.findMany({
-    where: q ? { name: { contains: q } } : undefined,
+  const where = buyerSearchWhere(q);
+  const { pageSize, skip, take } = parsePageQuery(ctx);
+
+  const rows = await prisma.buyer.findMany({
+    where,
     orderBy: { id: 'desc' },
+    skip,
+    take,
   });
-  ctx.body = { data: serialize(buyers) };
+
+  ctx.body = { data: serialize(toPaginatedResult(rows, pageSize)) };
 });
 
 router.post('/', async (ctx: Context) => {
   const { name, address, permanentAddress, birthday, phone } = ctx.request.body as BuyerBody;
   if (!name?.trim()) throw new AppError(400, 'VALIDATION_ERROR', '姓名必填');
+  const nameTrimmed = name.trim();
+  const parsedPhone = parsePhone(phone, false);
+  await assertBuyerUniqueOnCreate(nameTrimmed, parsedPhone);
   const buyer = await prisma.buyer.create({
     data: {
-      name: name.trim(),
+      name: nameTrimmed,
       address: address || null,
       permanentAddress: permanentAddress || null,
       birthday: birthday ? new Date(birthday) : null,
-      phone: parsePhone(phone, false),
+      phone: parsedPhone,
     },
   });
   ctx.status = 201;
@@ -78,3 +104,4 @@ router.delete('/:id', async (ctx: Context) => {
 });
 
 export default router;
+

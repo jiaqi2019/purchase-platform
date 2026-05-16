@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import debounce from 'lodash/debounce';
 import {
   Button,
   Card,
@@ -17,8 +18,16 @@ import {
 import dayjs, { type Dayjs } from 'dayjs';
 import { IconPlus, IconRefresh } from '@arco-design/web-react/icon';
 import { api, errMessage } from '../api/http-client';
-import type { Brand, Buyer, Product, Purchase, PurchaseQueryResult } from '../types/api-types';
+import type {
+  Brand,
+  Buyer,
+  PaginatedList,
+  Product,
+  Purchase,
+  PurchaseQueryResult,
+} from '../types/api-types';
 import { formatMoney } from '../utils/format';
+import { PAGE_SIZE, paginationTotal } from '../utils/pagination';
 import { confirmDelete } from '../utils/confirm-delete';
 
 interface LineItem {
@@ -51,6 +60,7 @@ interface Filters {
 }
 
 const emptyFilters: Filters = { buyerName: '', brand: '', productName: '' };
+const PRODUCT_OPTION_PAGE_SIZE = 5;
 
 let lineKey = 0;
 const newLine = (): LineItem => ({
@@ -92,29 +102,37 @@ function formatProductOptionLabel(p: Product): string {
   return `${brand}-${p.name}（${p.stock}）`;
 }
 
-function matchProductSearch(p: Product, query: string): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-  const brand = p.brand?.name?.toLowerCase() ?? '';
-  return p.name.toLowerCase().includes(q) || brand.includes(q) || formatProductOptionLabel(p).toLowerCase().includes(q);
-}
-
 export default function ConsumptionListPage() {
-  const [buyers, setBuyers] = useState<Buyer[]>([]);
+  const [buyerOptions, setBuyerOptions] = useState<Buyer[]>([]);
+  const [buyersLoading, setBuyersLoading] = useState(false);
+  const [productOptions, setProductOptions] = useState<Product[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [brands, setBrands] = useState<Brand[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters);
   const [result, setResult] = useState<PurchaseQueryResult | null>(null);
+  const [listPage, setListPage] = useState(1);
+  const [listHasMore, setListHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [addVisible, setAddVisible] = useState(false);
   const [form] = Form.useForm();
   const [items, setItems] = useState<LineItem[]>([newLine()]);
+  const buyerPageRef = useRef(1);
+  const buyerQueryRef = useRef('');
+  const buyerHasMoreRef = useRef(false);
+  const buyersLoadingRef = useRef(false);
+  const productPageRef = useRef(1);
+  const productQueryRef = useRef('');
+  const productHasMoreRef = useRef(false);
+  const productsLoadingRef = useRef(false);
 
-  const loadList = useCallback(async (f: Filters) => {
+  const loadList = async (f: Filters, p = 1) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({
+        page: String(p),
+        pageSize: String(PAGE_SIZE),
+      });
       if (f.buyerName.trim()) params.set('buyerName', f.buyerName.trim());
       if (f.brand.trim()) params.set('brand', f.brand.trim());
       if (f.productName.trim()) params.set('productName', f.productName.trim());
@@ -126,21 +144,135 @@ export default function ConsumptionListPage() {
         const end = dayjs(f.dateRange[1]);
         if (end.isValid()) params.set('endDate', end.format('YYYY-MM-DD'));
       }
-      const qs = params.toString();
-      const data = await api.get<PurchaseQueryResult>(`/purchases${qs ? `?${qs}` : ''}`);
+      const data = await api.get<PurchaseQueryResult>(`/purchases?${params}`);
       setResult(data);
+      setListHasMore(data.hasMore);
+      setListPage(p);
     } catch (e) {
       Message.error(errMessage(e));
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadBuyerOptions = useCallback(async (q: string, page: number, append: boolean) => {
+    if (buyersLoadingRef.current) return;
+    buyersLoadingRef.current = true;
+    setBuyersLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (q.trim()) params.set('q', q.trim());
+      const res = await api.get<PaginatedList<Buyer>>(`/buyers?${params}`);
+      buyerPageRef.current = page;
+      buyerQueryRef.current = q;
+      buyerHasMoreRef.current = res.hasMore;
+      setBuyerOptions((prev) => (append ? [...prev, ...res.items] : res.items));
+    } catch (e) {
+      Message.error(errMessage(e));
+    } finally {
+      buyersLoadingRef.current = false;
+      setBuyersLoading(false);
+    }
   }, []);
 
+  const debouncedBuyerSearch = useMemo(
+    () =>
+      debounce((value: string) => {
+        void loadBuyerOptions(value, 1, false);
+      }, 300),
+    [loadBuyerOptions],
+  );
+
+  useEffect(() => () => debouncedBuyerSearch.cancel(), [debouncedBuyerSearch]);
+
+  const ensureBuyerInOptions = async (buyerId: string) => {
+    try {
+      const buyer = await api.get<Buyer>(`/buyers/${buyerId}`);
+      setBuyerOptions((prev) => (prev.some((b) => b.id === buyer.id) ? prev : [buyer, ...prev]));
+    } catch {
+      /* 已选购买者不在当前分页结果中时单独拉取 */
+    }
+  };
+
+  const handleBuyerSearch = (value: string) => {
+    debouncedBuyerSearch(value);
+  };
+
+  const handleBuyerPopupScroll = (elem: HTMLDivElement) => {
+    if (buyersLoadingRef.current) return;
+    if (elem.scrollTop + elem.clientHeight < elem.scrollHeight - 8) return;
+    if (!buyerHasMoreRef.current) return;
+    void loadBuyerOptions(buyerQueryRef.current, buyerPageRef.current + 1, true);
+  };
+
+  const loadProductOptions = useCallback(async (q: string, page: number, append: boolean) => {
+    if (productsLoadingRef.current) return;
+    productsLoadingRef.current = true;
+    setProductsLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PRODUCT_OPTION_PAGE_SIZE),
+      });
+      if (q.trim()) params.set('q', q.trim());
+      const res = await api.get<PaginatedList<Product>>(`/products?${params}`);
+      productPageRef.current = page;
+      productQueryRef.current = q;
+      productHasMoreRef.current = res.hasMore;
+      setProductOptions((prev) => (append ? [...prev, ...res.items] : res.items));
+    } catch (e) {
+      Message.error(errMessage(e));
+    } finally {
+      productsLoadingRef.current = false;
+      setProductsLoading(false);
+    }
+  }, []);
+
+  const debouncedProductSearch = useMemo(
+    () =>
+      debounce((value: string) => {
+        void loadProductOptions(value, 1, false);
+      }, 300),
+    [loadProductOptions],
+  );
+
+  useEffect(() => () => debouncedProductSearch.cancel(), [debouncedProductSearch]);
+
+  const ensureProductInOptions = async (productId: string) => {
+    try {
+      const product = await api.get<Product>(`/products/${productId}`);
+      setProductOptions((prev) =>
+        prev.some((p) => p.id === product.id) ? prev : [product, ...prev],
+      );
+    } catch {
+      /* 已选商品不在当前分页结果中时单独拉取 */
+    }
+  };
+
+  const handleProductSearch = (value: string) => {
+    debouncedProductSearch(value);
+  };
+
+  const handleProductPopupScroll = (elem: HTMLDivElement) => {
+    if (productsLoadingRef.current) return;
+    if (elem.scrollTop + elem.clientHeight < elem.scrollHeight - 8) return;
+    if (!productHasMoreRef.current) return;
+    void loadProductOptions(productQueryRef.current, productPageRef.current + 1, true);
+  };
+
+  const prepareAddModal = async (opts?: { buyerId?: string; productIds?: string[] }) => {
+    await Promise.all([loadBuyerOptions('', 1, false), loadProductOptions('', 1, false)]);
+    if (opts?.buyerId) await ensureBuyerInOptions(opts.buyerId);
+    const ids = [...new Set((opts?.productIds ?? []).filter(Boolean))] as string[];
+    await Promise.all(ids.map((id) => ensureProductInOptions(id)));
+  };
+
   useEffect(() => {
-    api.get<Buyer[]>('/buyers').then(setBuyers).catch(() => {});
     api.get<Brand[]>('/brands').then(setBrands).catch(() => {});
-    api.get<Product[]>('/products').then(setProducts).catch(() => {});
-    loadList(emptyFilters);
+    void loadList(emptyFilters, 1);
   }, []);
 
   const normalizeFilters = (f: Filters): Filters => ({
@@ -154,33 +286,28 @@ export default function ConsumptionListPage() {
   const applySearch = () => {
     const next = normalizeFilters(filters);
     setAppliedFilters(next);
-    loadList(next);
+    void loadList(next, 1);
   };
 
   const resetFilters = () => {
     setFilters(emptyFilters);
     setAppliedFilters(emptyFilters);
-    loadList(emptyFilters);
+    void loadList(emptyFilters, 1);
   };
 
-  const tableRows = useMemo(
-    () => (result ? flattenPurchases(result.purchases) : []),
-    [result],
-  );
+  const tableRows = result ? flattenPurchases(result.items) : [];
 
-  const purchaseMap = useMemo(() => {
-    const map = new Map<string, Purchase>();
-    for (const p of result?.purchases ?? []) {
-      map.set(p.id, p);
-    }
-    return map;
-  }, [result]);
+  const purchaseMap = new Map<string, Purchase>();
+  for (const p of result?.items ?? []) {
+    purchaseMap.set(p.id, p);
+  }
 
   const openAdd = () => {
     form.resetFields();
     form.setFieldsValue({ purchasedAt: dayjs() });
     setItems([newLine()]);
     setAddVisible(true);
+    void prepareAddModal();
   };
 
   const copyRowToDialog = (row: ConsumptionRow) => {
@@ -210,6 +337,10 @@ export default function ConsumptionListPage() {
       },
     ]);
     setAddVisible(true);
+    void prepareAddModal({
+      buyerId: purchase.buyerId,
+      productIds: [item.productId].filter((id): id is string => Boolean(id)),
+    });
   };
 
   const removePurchase = (row: ConsumptionRow) => {
@@ -220,12 +351,12 @@ export default function ConsumptionListPage() {
       title: '删除消费',
       content: `确定删除 ${buyerName} 在 ${time} 的整笔消费？将删除全部 ${purchase?.items.length ?? 0} 条明细并恢复库存。`,
       onDelete: () => api.delete(`/purchases/${row.purchaseId}`),
-      onSuccess: () => loadList(appliedFilters),
+      onSuccess: () => void loadList(appliedFilters, listPage),
     });
   };
 
   const pickProduct = (key: number, productId: string) => {
-    const p = products.find((x) => x.id === productId);
+    const p = productOptions.find((x) => x.id === productId);
     const price = p?.sellPrice != null ? String(p.sellPrice) : '';
     setItems((rows) =>
       rows.map((row) =>
@@ -272,7 +403,7 @@ export default function ConsumptionListPage() {
       });
       Message.success('消费记录已保存');
       setAddVisible(false);
-      loadList(appliedFilters);
+      void loadList(appliedFilters, listPage);
     } catch (e) {
       if (e && typeof e === 'object' && 'error' in e) return;
       Message.error(errMessage(e));
@@ -290,8 +421,8 @@ export default function ConsumptionListPage() {
             precision={2}
             prefix="¥"
           />
-          <Statistic title="消费明细条数" value={tableRows.length} />
-          <Statistic title="订单数" value={result?.purchases.length ?? 0} />
+          <Statistic title="消费明细条数" value={result?.itemCount ?? 0} />
+          <Statistic title="订单数" value={result?.purchaseCount ?? 0} />
         </Space>
       </Card>
 
@@ -358,7 +489,7 @@ export default function ConsumptionListPage() {
               筛选
             </Button>
             <Button onClick={resetFilters}>重置</Button>
-            <Button icon={<IconRefresh />} onClick={() => loadList(appliedFilters)}>
+            <Button icon={<IconRefresh />} onClick={() => void loadList(appliedFilters, listPage)}>
               刷新
             </Button>
           </Space>
@@ -377,7 +508,13 @@ export default function ConsumptionListPage() {
         loading={loading}
         rowKey="rowKey"
         data={tableRows}
-        pagination={{ pageSize: 20, showTotal: true }}
+        pagination={{
+          current: listPage,
+          pageSize: PAGE_SIZE,
+          total: paginationTotal(listPage, PAGE_SIZE, result?.items.length ?? 0, listHasMore),
+          showTotal: true,
+          onChange: (p) => void loadList(appliedFilters, p),
+        }}
         columns={[
           { title: '购买者', dataIndex: 'buyerName' },
           { title: '手机', dataIndex: 'buyerPhone' },
@@ -442,22 +579,15 @@ export default function ConsumptionListPage() {
         <Form form={form} layout="vertical">
           <Form.Item label="购买者" field="buyerId" rules={[{ required: true }]}>
             <Select
-              placeholder="请选择或输入姓名/手机筛选"
+              placeholder="输入姓名搜索"
               showSearch
               allowClear
-              filterOption={(inputValue, option) => {
-                const id = option.props.value as string;
-                const buyer = buyers.find((b) => b.id === id);
-                if (!buyer) return false;
-                const q = inputValue.trim().toLowerCase();
-                if (!q) return true;
-                return (
-                  buyer.name.toLowerCase().includes(q) ||
-                  (buyer.phone?.toLowerCase().includes(q) ?? false)
-                );
-              }}
+              loading={buyersLoading}
+              filterOption={false}
+              onSearch={handleBuyerSearch}
+              onPopupScroll={handleBuyerPopupScroll}
             >
-              {buyers.map((b) => (
+              {buyerOptions.map((b) => (
                 <Select.Option key={b.id} value={b.id}>
                   {b.phone ? `${b.name}（${b.phone}）` : b.name}
                 </Select.Option>
@@ -499,18 +629,17 @@ export default function ConsumptionListPage() {
                 <div style={{ marginBottom: 4, color: 'var(--color-text-3)' }}>商品</div>
                 <Select
                   style={{ width: 280 }}
-                  placeholder="请选择或输入品牌/名称筛选"
+                  placeholder="输入品牌或名称搜索"
                   showSearch
                   allowClear
+                  loading={productsLoading}
+                  filterOption={false}
                   value={row.productId || undefined}
                   onChange={(v) => pickProduct(row.key, v || '')}
-                  filterOption={(inputValue, option) => {
-                    const id = option.props.value as string;
-                    const p = products.find((x) => x.id === id);
-                    return p ? matchProductSearch(p, inputValue) : false;
-                  }}
+                  onSearch={handleProductSearch}
+                  onPopupScroll={handleProductPopupScroll}
                 >
-                  {products.map((p) => (
+                  {productOptions.map((p) => (
                     <Select.Option key={p.id} value={p.id}>
                       {formatProductOptionLabel(p)}
                     </Select.Option>

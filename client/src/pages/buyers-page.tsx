@@ -3,20 +3,28 @@ import { Button, DatePicker, Form, Input, Message, Modal, Space, Table } from '@
 import dayjs from 'dayjs';
 import { api, errMessage } from '../api/http-client';
 import { confirmDelete } from '../utils/confirm-delete';
-import type { Buyer, Id } from '../types/api-types';
+import type { Buyer, Id, PaginatedList } from '../types/api-types';
+import { PAGE_SIZE, paginationTotal } from '../utils/pagination';
 import { normalizePhone, phoneValidationMessage } from '../utils/phone';
 
 export default function BuyersPage() {
   const [list, setList] = useState<Buyer[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [visible, setVisible] = useState(false);
   const [editId, setEditId] = useState<Id | null>(null);
   const [form] = Form.useForm();
 
-  const load = async () => {
+  const load = async (p = page) => {
     setLoading(true);
     try {
-      setList(await api.get<Buyer[]>('/buyers'));
+      const res = await api.get<PaginatedList<Buyer>>(
+        `/buyers?page=${p}&pageSize=${PAGE_SIZE}`,
+      );
+      setList(res.items);
+      setHasMore(res.hasMore);
+      setPage(p);
     } catch (e) {
       Message.error(errMessage(e));
     } finally {
@@ -25,7 +33,7 @@ export default function BuyersPage() {
   };
 
   useEffect(() => {
-    load();
+    void load(1);
   }, []);
 
   const openCreate = () => {
@@ -58,7 +66,7 @@ export default function BuyersPage() {
       else await api.post('/buyers', body);
       Message.success(editId ? '已更新' : '已创建');
       setVisible(false);
-      load();
+      void load(page);
     } catch (e) {
       if (e && typeof e === 'object' && 'error' in e) return;
       Message.error(errMessage(e));
@@ -69,7 +77,7 @@ export default function BuyersPage() {
     confirmDelete({
       content: '确定删除该购买者？已有消费记录将无法删除。',
       onDelete: () => api.delete(`/buyers/${id}`),
-      onSuccess: load,
+      onSuccess: () => load(page),
     });
   };
 
@@ -85,6 +93,13 @@ export default function BuyersPage() {
         loading={loading}
         rowKey="id"
         data={list}
+        pagination={{
+          current: page,
+          pageSize: PAGE_SIZE,
+          total: paginationTotal(page, PAGE_SIZE, list.length, hasMore),
+          showTotal: true,
+          onChange: (p) => void load(p),
+        }}
         columns={[
           { title: '姓名', dataIndex: 'name' },
           { title: '手机', dataIndex: 'phone', render: (v) => v || '-' },

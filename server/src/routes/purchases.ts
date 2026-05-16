@@ -5,6 +5,7 @@ import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
 import { createPurchase, deletePurchase } from '../services/purchase-service';
 import type { CreatePurchaseInput, PurchaseItemInput } from '../types/purchase';
+import { parsePageQuery, toPaginatedResult } from '../utils/pagination';
 import type { Prisma } from '@prisma/client';
 
 const router = new Router({ prefix: '/purchases' });
@@ -60,33 +61,41 @@ router.get('/', async (ctx: Context) => {
     where.items = { some: { AND: itemFilters } };
   }
 
-  const purchases = await prisma.purchase.findMany({
-    where,
-    orderBy: { purchasedAt: 'desc' },
-    include: {
-      buyer: true,
-      items: {
-        include: { product: { include: { brand: true } } },
-      },
-    },
-  });
+  const { pageSize, skip, take } = parsePageQuery(ctx);
 
-  const buyerMap = new Map<string, { id: bigint; name: string }>();
+  const [purchaseRows, purchaseCount, statItems] = await Promise.all([
+    prisma.purchase.findMany({
+      where,
+      orderBy: { purchasedAt: 'desc' },
+      skip,
+      take,
+      include: {
+        buyer: true,
+        items: {
+          include: { product: { include: { brand: true } } },
+        },
+      },
+    }),
+    prisma.purchase.count({ where }),
+    prisma.purchaseItem.findMany({
+      where: { purchase: where },
+      select: { price: true, quantity: true },
+    }),
+  ]);
+
+  const { items, hasMore } = toPaginatedResult(purchaseRows, pageSize);
   let grandTotal = 0;
-  for (const p of purchases) {
-    if (p.buyer) {
-      buyerMap.set(p.buyer.id.toString(), { id: p.buyer.id, name: p.buyer.name });
-    }
-    for (const item of p.items) {
-      grandTotal += Number(item.price) * item.quantity;
-    }
+  for (const item of statItems) {
+    grandTotal += Number(item.price) * item.quantity;
   }
 
   ctx.body = {
     data: serialize({
-      buyers: [...buyerMap.values()],
-      purchases,
+      items,
+      hasMore,
       grandTotal,
+      purchaseCount,
+      itemCount: statItems.length,
     }),
   };
 });

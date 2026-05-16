@@ -5,6 +5,7 @@ import prisma from '../prisma';
 import { getBuyerPurchaseStatsMap } from '../services/buyer-purchase-stats';
 import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
+import { parsePageQuery, toPaginatedResult } from '../utils/pagination';
 
 const router = new Router({ prefix: '/birthday-reminders' });
 
@@ -15,20 +16,25 @@ interface ReminderPatchBody {
 router.get('/', async (ctx: Context) => {
   const status =
     typeof ctx.query.status === 'string' ? (ctx.query.status as ReminderStatus) : 'PENDING';
-  const list = await prisma.birthdayReminder.findMany({
+  const { pageSize, skip, take } = parsePageQuery(ctx);
+
+  const rows = await prisma.birthdayReminder.findMany({
     where: status ? { status } : undefined,
     orderBy: { createdAt: 'desc' },
+    skip,
+    take,
     include: { buyer: true },
   });
 
-  const buyerIds = [...new Set(list.map((r) => r.buyerId))];
+  const { items, hasMore } = toPaginatedResult(rows, pageSize);
+  const buyerIds = [...new Set(items.map((r) => r.buyerId))];
   const statsMap = await getBuyerPurchaseStatsMap(buyerIds);
-  const enriched = list.map((r) => {
+  const enriched = items.map((r) => {
     const stats = statsMap.get(r.buyerId.toString()) ?? { hasPurchases: false, totalSpent: 0 };
     return { ...r, ...stats };
   });
 
-  ctx.body = { data: serialize(enriched) };
+  ctx.body = { data: serialize({ items: enriched, hasMore }) };
 });
 
 router.patch('/:id', async (ctx: Context) => {

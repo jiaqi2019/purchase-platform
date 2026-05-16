@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react';
-import { InputNumber, Message, Table } from '@arco-design/web-react';
+import { Message, Table } from '@arco-design/web-react';
 import { api, errMessage } from '../api/http-client';
-import type { LeaderboardEntry } from '../types/api-types';
+import type { LeaderboardEntry, PaginatedList } from '../types/api-types';
 import { formatMoney } from '../utils/format';
+import { PAGE_SIZE, paginationTotal } from '../utils/pagination';
 
 export default function LeaderboardPage() {
   const [list, setList] = useState<LeaderboardEntry[]>([]);
-  const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
 
-  const load = async () => {
+  const load = async (p = page) => {
     setLoading(true);
     try {
-      setList(await api.get<LeaderboardEntry[]>(`/stats/leaderboard?limit=${limit}`));
+      const res = await api.get<PaginatedList<LeaderboardEntry>>(
+        `/stats/leaderboard?page=${p}&pageSize=${PAGE_SIZE}`,
+      );
+      setList(res.items);
+      setHasMore(res.hasMore);
+      setPage(p);
     } catch (e) {
       Message.error(errMessage(e));
     } finally {
@@ -21,22 +28,28 @@ export default function LeaderboardPage() {
   };
 
   useEffect(() => {
-    load();
-  }, [limit]);
+    void load(1);
+  }, []);
 
   return (
     <>
       <h1 className="page-title">消费排行</h1>
-      <div style={{ marginBottom: 16 }}>
-        <span style={{ marginRight: 8 }}>显示条数</span>
-        <InputNumber min={1} max={100} value={limit} onChange={(v) => setLimit(v ?? 20)} />
-      </div>
       <Table
         loading={loading}
         rowKey="buyerId"
         data={list}
+        pagination={{
+          current: page,
+          pageSize: PAGE_SIZE,
+          total: paginationTotal(page, PAGE_SIZE, list.length, hasMore),
+          showTotal: true,
+          onChange: (p) => void load(p),
+        }}
         columns={[
-          { title: '排名', render: (_, __, index) => index + 1 },
+          {
+            title: '排名',
+            render: (_, __, index) => (page - 1) * PAGE_SIZE + index + 1,
+          },
           { title: '姓名', dataIndex: 'name' },
           {
             title: '总消费（购买价）',

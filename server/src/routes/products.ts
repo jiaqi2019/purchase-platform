@@ -4,6 +4,7 @@ import prisma from '../prisma';
 import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
 import { parseOptionalDecimal } from '../utils/decimal';
+import { parsePageQuery, toPaginatedResult } from '../utils/pagination';
 import type { Prisma } from '@prisma/client';
 
 const router = new Router({ prefix: '/products' });
@@ -24,21 +25,23 @@ function assertBrandRequired(brandId: string | number | bigint | null | undefine
 }
 
 router.get('/', async (ctx: Context) => {
-  const { categoryId, q } = ctx.query;
+  const { categoryId, brandId, q } = ctx.query;
   const where: Prisma.ProductWhereInput = {};
   if (categoryId) where.categoryId = BigInt(String(categoryId));
+  if (brandId) where.brandId = BigInt(String(brandId));
   if (typeof q === 'string' && q.trim()) {
-    where.OR = [
-      { name: { contains: q.trim() } },
-      { brand: { name: { contains: q.trim() } } },
-    ];
+    const keyword = q.trim();
+    where.OR = [{ name: { contains: keyword } }, { brand: { name: { contains: keyword } } }];
   }
-  const list = await prisma.product.findMany({
+  const { pageSize, skip, take } = parsePageQuery(ctx);
+  const rows = await prisma.product.findMany({
     where,
     orderBy: { id: 'desc' },
+    skip,
+    take,
     include: { category: true, brand: true },
   });
-  ctx.body = { data: serialize(list) };
+  ctx.body = { data: serialize(toPaginatedResult(rows, pageSize)) };
 });
 
 router.post('/', async (ctx: Context) => {
