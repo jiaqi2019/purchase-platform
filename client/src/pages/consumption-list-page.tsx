@@ -324,7 +324,7 @@ export default function ConsumptionListPage() {
     form.resetFields();
     form.setFieldsValue({
       buyerId: purchase.buyerId,
-      purchasedAt: dayjs(purchase.purchasedAt),
+      purchasedAt: dayjs(),
       note: purchase.note || '',
     });
     setItems([
