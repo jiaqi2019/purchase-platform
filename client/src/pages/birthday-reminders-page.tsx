@@ -12,7 +12,7 @@ import {
   Table,
   Tag,
 } from '@arco-design/web-react';
-import { api, errMessage } from '../api/http-client';
+import { api, errMessage, isFormValidationError } from '../api/http-client';
 import type { BirthdayReminder, BirthdayReminderSettings, PaginatedList } from '../types/api-types';
 import { EllipsisText } from '../components/ellipsis-text';
 import { formatMoney } from '../utils/format';
@@ -83,7 +83,7 @@ export default function BirthdayRemindersPage() {
       setSettingsVisible(false);
       Message.success('设置已保存');
     } catch (e) {
-      if (e && typeof e === 'object' && 'error' in e) return;
+      if (isFormValidationError(e)) return;
       Message.error(errMessage(e));
     }
   };

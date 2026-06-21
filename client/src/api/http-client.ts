@@ -27,3 +27,14 @@ export const api = {
 export function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : '未知错误';
 }
+
+export function isFormValidationError(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'errors' in err &&
+    (err instanceof Error
+      ? err.message.includes('form validate error')
+      : true)
+  );
+}

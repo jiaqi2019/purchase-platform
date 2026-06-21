@@ -4,6 +4,10 @@ import { Prisma } from '@prisma/client';
 import prisma from '../prisma';
 import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
+import {
+  assertLegacyProductsUnused,
+  deleteUnusedProductModels,
+} from '../services/product-model-delete';
 
 const router = new Router({ prefix: '/brands' });
 
@@ -75,12 +79,16 @@ router.patch('/:id', async (ctx: Context) => {
 
 router.delete('/:id', async (ctx: Context) => {
   const id = BigInt(ctx.params.id);
-  const count = await prisma.product.count({ where: { brandId: id } });
-  if (count > 0) throw new AppError(409, 'CONFLICT', '仍有商品引用该品牌');
   try {
-    await prisma.brand.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await assertLegacyProductsUnused(tx, { brandId: id });
+      await tx.product.deleteMany({ where: { brandId: id } });
+      await deleteUnusedProductModels(tx, { brandId: id });
+      await tx.brand.delete({ where: { id } });
+    });
     ctx.status = 204;
-  } catch {
+  } catch (e) {
+    if (e instanceof AppError) throw e;
     throw new AppError(404, 'NOT_FOUND', '品牌不存在');
   }
 });

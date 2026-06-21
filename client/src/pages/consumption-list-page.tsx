@@ -12,17 +12,19 @@ import {
   Space,
   Statistic,
   Table,
+  Tag,
   Typography,
   DatePicker,
 } from '@arco-design/web-react';
 import dayjs, { type Dayjs } from 'dayjs';
 import { IconPlus, IconRefresh } from '@arco-design/web-react/icon';
-import { api, errMessage } from '../api/http-client';
+import { api, errMessage, isFormValidationError } from '../api/http-client';
 import type {
   Brand,
   Buyer,
+  InventoryItem,
   PaginatedList,
-  Product,
+  ProductModel,
   Purchase,
   PurchaseQueryResult,
 } from '../types/api-types';
@@ -33,22 +35,9 @@ import { confirmDelete } from '../utils/confirm-delete';
 interface LineItem {
   key: number;
   productId?: string | null;
+  inventoryItemId?: string | null;
   name: string;
   price: string;
-  quantity: number;
-}
-
-interface ConsumptionRow {
-  rowKey: string;
-  purchaseId: string;
-  itemId: string;
-  buyerName: string;
-  buyerPhone: string;
-  purchasedAt: string;
-  note: string | null;
-  itemName: string;
-  brandName: string;
-  price: string | number;
   quantity: number;
 }
 
@@ -66,38 +55,65 @@ let lineKey = 0;
 const newLine = (): LineItem => ({
   key: ++lineKey,
   productId: null,
+  inventoryItemId: null,
   name: '',
   price: '',
   quantity: 1,
 });
 
-function flattenPurchases(purchases: Purchase[]): ConsumptionRow[] {
-  const rows: ConsumptionRow[] = [];
-  for (const p of purchases) {
-    for (const item of p.items) {
-      rows.push({
-        rowKey: `${p.id}-${item.id}`,
-        purchaseId: p.id,
-        itemId: item.id,
-        buyerName: p.buyer?.name ?? '-',
-        buyerPhone: p.buyer?.phone ?? '-',
-        purchasedAt: p.purchasedAt,
-        note: p.note,
-        itemName: item.name,
-        brandName: item.product?.brand?.name ?? '-',
-        price: item.price,
-        quantity: item.quantity,
-      });
-    }
-  }
-  return rows;
-}
-
 function lineTotal(price: string | number, qty: number): number {
   return Number(price) * qty;
 }
 
-function formatProductOptionLabel(p: Product): string {
+function orderTotal(order: Purchase): number {
+  return order.items.reduce((sum, item) => sum + lineTotal(item.price, item.quantity), 0);
+}
+
+function summarizeOrderItems(order: Purchase): string {
+  const names = order.items.map((item) => item.name).filter(Boolean);
+  if (!names.length) return '-';
+  if (names.length <= 2) return names.join('、');
+  return `${names.slice(0, 2).join('、')} 等 ${names.length} 项`;
+}
+
+function getOrderAfterSaleState(order: Purchase): {
+  label: string;
+  color: 'gray' | 'blue' | 'orange' | 'green' | 'red';
+} {
+  const statuses = order.items.map((item) => item.status ?? 'SOLD');
+  if (!statuses.length) return { label: '-', color: 'gray' };
+  if (statuses.every((status) => status === 'RETURNED' || status === 'EXCHANGED')) {
+    return { label: '已售后', color: 'green' };
+  }
+  if (statuses.some((status) => status === 'EXCHANGING')) {
+    return { label: '售后中', color: 'orange' };
+  }
+  if (statuses.some((status) => status === 'RETURNED' || status === 'EXCHANGED')) {
+    return { label: '部分售后', color: 'blue' };
+  }
+  if (order.afterSales?.some((afterSale) => afterSale.status === 'PROCESSING')) {
+    return { label: '售后处理中', color: 'orange' };
+  }
+  return { label: '未售后', color: 'gray' };
+}
+
+function isOrderItemEligibleForAfterSale(item: Purchase['items'][number]): boolean {
+  return (item.status ?? 'SOLD') === 'SOLD';
+}
+
+function afterSaleTypeLabel(type: string): string {
+  return type === 'RETURN' ? '退货' : '换货';
+}
+
+function afterSaleStatusLabel(status: string): { label: string; color: 'gray' | 'blue' | 'orange' | 'green' | 'red' } {
+  if (status === 'COMPLETED') return { label: '已结束', color: 'green' };
+  if (status === 'PROCESSING') return { label: '售后中', color: 'orange' };
+  if (status === 'PENDING') return { label: '待处理', color: 'gray' };
+  if (status === 'CANCELLED') return { label: '已取消', color: 'red' };
+  return { label: status, color: 'blue' };
+}
+
+function formatProductOptionLabel(p: ProductModel): string {
   const brand = p.brand?.name ?? '-';
   return `${brand}-${p.name}（${p.stock}）`;
 }
@@ -105,8 +121,10 @@ function formatProductOptionLabel(p: Product): string {
 export default function ConsumptionListPage() {
   const [buyerOptions, setBuyerOptions] = useState<Buyer[]>([]);
   const [buyersLoading, setBuyersLoading] = useState(false);
-  const [productOptions, setProductOptions] = useState<Product[]>([]);
+  const [productOptions, setProductOptions] = useState<ProductModel[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  const [inventoryOptions, setInventoryOptions] = useState<Record<string, InventoryItem[]>>({});
+  const [inventoryLoading, setInventoryLoading] = useState<Record<string, boolean>>({});
   const [brands, setBrands] = useState<Brand[]>([]);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState<Filters>(emptyFilters);
@@ -115,7 +133,11 @@ export default function ConsumptionListPage() {
   const [listHasMore, setListHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [addVisible, setAddVisible] = useState(false);
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [afterSaleVisible, setAfterSaleVisible] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Purchase | null>(null);
   const [form] = Form.useForm();
+  const [afterSaleForm] = Form.useForm();
   const [items, setItems] = useState<LineItem[]>([newLine()]);
   const buyerPageRef = useRef(1);
   const buyerQueryRef = useRef('');
@@ -144,7 +166,7 @@ export default function ConsumptionListPage() {
         const end = dayjs(f.dateRange[1]);
         if (end.isValid()) params.set('endDate', end.format('YYYY-MM-DD'));
       }
-      const data = await api.get<PurchaseQueryResult>(`/purchases?${params}`);
+      const data = await api.get<PurchaseQueryResult>(`/sales-orders?${params}`);
       setResult(data);
       setListHasMore(data.hasMore);
       setListPage(p);
@@ -193,7 +215,7 @@ export default function ConsumptionListPage() {
       const buyer = await api.get<Buyer>(`/buyers/${buyerId}`);
       setBuyerOptions((prev) => (prev.some((b) => b.id === buyer.id) ? prev : [buyer, ...prev]));
     } catch {
-      /* 已选购买者不在当前分页结果中时单独拉取 */
+      /* ignore */
     }
   };
 
@@ -218,7 +240,7 @@ export default function ConsumptionListPage() {
         pageSize: String(PRODUCT_OPTION_PAGE_SIZE),
       });
       if (q.trim()) params.set('q', q.trim());
-      const res = await api.get<PaginatedList<Product>>(`/products?${params}`);
+      const res = await api.get<PaginatedList<ProductModel>>(`/product-models?${params}`);
       productPageRef.current = page;
       productQueryRef.current = q;
       productHasMoreRef.current = res.hasMore;
@@ -243,12 +265,30 @@ export default function ConsumptionListPage() {
 
   const ensureProductInOptions = async (productId: string) => {
     try {
-      const product = await api.get<Product>(`/products/${productId}`);
+      const product = await api.get<ProductModel>(`/product-models/${productId}`);
       setProductOptions((prev) =>
         prev.some((p) => p.id === product.id) ? prev : [product, ...prev],
       );
     } catch {
-      /* 已选商品不在当前分页结果中时单独拉取 */
+      /* ignore */
+    }
+  };
+
+  const loadInventoryForProduct = async (lineKeyValue: number, productId: string) => {
+    if (inventoryLoading[String(lineKeyValue)]) return;
+    setInventoryLoading((prev) => ({ ...prev, [lineKeyValue]: true }));
+    try {
+      const res = await api.get<PaginatedList<InventoryItem>>(
+        `/inventory/items?modelId=${productId}&page=1&pageSize=200`,
+      );
+      const available = res.items.filter(
+        (item) => item.status === 'IN_STOCK' || item.status === 'RETURNED_IN_STOCK',
+      );
+      setInventoryOptions((prev) => ({ ...prev, [lineKeyValue]: available }));
+    } catch (e) {
+      Message.error(errMessage(e));
+    } finally {
+      setInventoryLoading((prev) => ({ ...prev, [lineKeyValue]: false }));
     }
   };
 
@@ -295,77 +335,113 @@ export default function ConsumptionListPage() {
     void loadList(emptyFilters, 1);
   };
 
-  const tableRows = result ? flattenPurchases(result.items) : [];
-
-  const purchaseMap = new Map<string, Purchase>();
-  for (const p of result?.items ?? []) {
-    purchaseMap.set(p.id, p);
-  }
+  const tableRows = result?.items ?? [];
 
   const openAdd = () => {
     form.resetFields();
     form.setFieldsValue({ purchasedAt: dayjs() });
     setItems([newLine()]);
+    setInventoryOptions({});
     setAddVisible(true);
     void prepareAddModal();
   };
 
-  const copyRowToDialog = (row: ConsumptionRow) => {
-    const purchase = purchaseMap.get(row.purchaseId);
-    if (!purchase) {
-      Message.error('未找到消费记录');
+  const loadOrderDetail = async (purchaseId: string) => {
+    const detail = await api.get<Purchase>(`/sales-orders/${purchaseId}`);
+    setSelectedOrder(detail);
+    setDetailVisible(true);
+  };
+
+  const openDetail = (purchase: Purchase) => {
+    void loadOrderDetail(purchase.id).catch((e) => Message.error(errMessage(e)));
+  };
+
+  const openAfterSale = (purchase: Purchase) => {
+    const eligibleItemIds = purchase.items.filter(isOrderItemEligibleForAfterSale).map((item) => item.id);
+    if (!eligibleItemIds.length) {
+      Message.error('该订单没有可继续售后的明细');
       return;
     }
-    const item = purchase.items.find((i) => i.id === row.itemId);
-    if (!item) {
-      Message.error('未找到商品明细');
-      return;
-    }
+    setSelectedOrder(purchase);
+    setDetailVisible(false);
+    afterSaleForm.resetFields();
+    afterSaleForm.setFieldsValue({
+      salesOrderItemIds: eligibleItemIds,
+      type: 'RETURN',
+      note: '',
+    });
+    setAfterSaleVisible(true);
+  };
+
+  const formatAfterSaleItems = (afterSale: NonNullable<Purchase['afterSales']>[number]) => {
+    const ids = new Set((afterSale.items ?? []).map((item) => item.salesOrderItemId));
+    const names = selectedOrder?.items
+      .filter((item) => ids.has(item.id))
+      .map((item) => item.name)
+      .filter(Boolean) ?? [];
+    return names.length ? names.join('、') : '-';
+  };
+
+  const copyPurchaseToDialog = (purchase: Purchase) => {
     form.resetFields();
     form.setFieldsValue({
       buyerId: purchase.buyerId,
-      purchasedAt: dayjs(),
+      purchasedAt: dayjs(purchase.purchasedAt),
       note: purchase.note || '',
     });
-    setItems([
-      {
-        key: ++lineKey,
-        productId: item.productId,
-        name: item.name,
-        price: String(item.price),
-        quantity: item.quantity,
-      },
-    ]);
+    setItems(
+      purchase.items.length
+        ? purchase.items.map((item) => ({
+            key: ++lineKey,
+            productId: item.modelId ?? item.productId,
+            inventoryItemId: item.inventoryItemId ?? null,
+            name: item.name,
+            price: String(item.price),
+            quantity: item.quantity,
+          }))
+        : [newLine()],
+    );
     setAddVisible(true);
     void prepareAddModal({
       buyerId: purchase.buyerId,
-      productIds: [item.productId].filter((id): id is string => Boolean(id)),
+      productIds: purchase.items
+        .map((item) => item.modelId ?? item.productId)
+        .filter((id): id is string => Boolean(id)),
     });
   };
 
-  const removePurchase = (row: ConsumptionRow) => {
-    const purchase = purchaseMap.get(row.purchaseId);
-    const buyerName = purchase?.buyer?.name ?? row.buyerName;
-    const time = new Date(row.purchasedAt).toLocaleString('zh-CN');
+  const removePurchase = (purchase: Purchase) => {
+    const buyerName = purchase.buyer?.name ?? '-';
+    const time = new Date(purchase.purchasedAt).toLocaleString('zh-CN');
     confirmDelete({
       title: '删除消费',
-      content: `确定删除 ${buyerName} 在 ${time} 的整笔消费？将删除全部 ${purchase?.items.length ?? 0} 条明细并恢复库存。`,
-      onDelete: () => api.delete(`/purchases/${row.purchaseId}`),
+      content: `确定删除 ${buyerName} 在 ${time} 的整笔消费？将删除全部 ${purchase.items.length} 条明细并恢复库存。`,
+      onDelete: () => api.delete(`/sales-orders/${purchase.id}`),
       onSuccess: () => void loadList(appliedFilters, listPage),
     });
   };
 
   const pickProduct = (key: number, productId: string) => {
     const p = productOptions.find((x) => x.id === productId);
-    const price = p?.sellPrice != null ? String(p.sellPrice) : '';
+    if (p?.trackingMode === 'SERIALIZED') {
+      void loadInventoryForProduct(key, productId);
+    } else {
+      setInventoryOptions((prev) => {
+        const next = { ...prev };
+        delete next[String(key)];
+        return next;
+      });
+    }
     setItems((rows) =>
       rows.map((row) =>
         row.key === key
           ? {
               ...row,
               productId: productId || null,
+              inventoryItemId: null,
               name: p ? p.name : row.name,
-              price: price || row.price,
+              price: '',
+              quantity: p?.trackingMode === 'SERIALIZED' ? 1 : row.quantity,
             }
           : row,
       ),
@@ -384,20 +460,25 @@ export default function ConsumptionListPage() {
           Message.error('请填写商品名称');
           return;
         }
+        const product = row.productId ? productOptions.find((p) => p.id === row.productId) : null;
+        if (product?.trackingMode === 'SERIALIZED' && !row.inventoryItemId) {
+          Message.error('单品追踪商品必须选择具体库存单品');
+          return;
+        }
         if (row.price === '' || row.price === undefined) {
           Message.error('请填写价格');
           return;
         }
       }
-      await api.post('/purchases', {
+      await api.post('/sales-orders', {
         buyerId: values.buyerId,
         purchasedAt: dayjs(values.purchasedAt).toISOString(),
         note: values.note || null,
-        items: items.map(({ productId, name, price, quantity }) => ({
-          productId: productId || null,
+        items: items.map(({ productId, inventoryItemId, name, price, quantity }) => ({
+          modelId: productId || null,
+          inventoryItemId: inventoryItemId || null,
           name,
           price,
-          sellPrice: null,
           quantity,
         })),
       });
@@ -405,23 +486,57 @@ export default function ConsumptionListPage() {
       setAddVisible(false);
       void loadList(appliedFilters, listPage);
     } catch (e) {
-      if (e && typeof e === 'object' && 'error' in e) return;
+      if (isFormValidationError(e)) return;
+      Message.error(errMessage(e));
+    }
+  };
+
+  const submitAfterSale = async () => {
+    try {
+      const values = await afterSaleForm.validate();
+      if (!selectedOrder) {
+        Message.error('未找到原订单');
+        return;
+      }
+      const itemIds = (values.salesOrderItemIds ?? []) as string[];
+      if (!itemIds.length) {
+        Message.error('请选择至少一条明细');
+        return;
+      }
+      const eligibleIds = new Set(
+        selectedOrder.items.filter(isOrderItemEligibleForAfterSale).map((item) => item.id),
+      );
+      if (itemIds.some((id) => !eligibleIds.has(id))) {
+        Message.error('已售后明细不能重复发起售后');
+        return;
+      }
+      await api.post('/after-sales', {
+        salesOrderId: selectedOrder.id,
+        type: values.type,
+        note: values.note || null,
+        items: itemIds.map((salesOrderItemId) => ({ salesOrderItemId })),
+      });
+      Message.success('售后单已创建');
+      setAfterSaleVisible(false);
+      void loadList(appliedFilters, listPage);
+    } catch (e) {
+      if (isFormValidationError(e)) return;
       Message.error(errMessage(e));
     }
   };
 
   return (
     <>
-      <h1 className="page-title">消费列表</h1>
+      <h1 className="page-title">订单列表</h1>
       <Card style={{ marginBottom: 16 }}>
         <Space size="large">
           <Statistic
-            title="筛选后累计消费"
+            title="筛选后累计金额"
             value={result?.grandTotal ?? 0}
             precision={2}
             prefix="¥"
           />
-          <Statistic title="消费明细条数" value={result?.itemCount ?? 0} />
+          <Statistic title="商品明细条数" value={result?.itemCount ?? 0} />
           <Statistic title="订单数" value={result?.purchaseCount ?? 0} />
         </Space>
       </Card>
@@ -506,7 +621,7 @@ export default function ConsumptionListPage() {
 
       <Table
         loading={loading}
-        rowKey="rowKey"
+        rowKey="id"
         data={tableRows}
         pagination={{
           current: listPage,
@@ -516,37 +631,44 @@ export default function ConsumptionListPage() {
           onChange: (p) => void loadList(appliedFilters, p),
         }}
         columns={[
-          { title: '购买者', dataIndex: 'buyerName' },
-          { title: '手机', dataIndex: 'buyerPhone' },
+          { title: '购买者', render: (_, row) => row.buyer?.name ?? '-' },
+          { title: '手机', render: (_, row) => row.buyer?.phone ?? '-' },
           {
             title: '购买时间',
-            dataIndex: 'purchasedAt',
-            render: (v) => new Date(v).toLocaleString('zh-CN'),
+            render: (_, row) => new Date(row.purchasedAt).toLocaleString('zh-CN'),
           },
-          { title: '商品名称', dataIndex: 'itemName' },
-          { title: '品牌', dataIndex: 'brandName' },
           {
-            title: '价格',
-            dataIndex: 'price',
-            render: (v) => <span className="cell-nowrap">{formatMoney(v)}</span>,
+            title: '售后状态',
+            render: (_, row) => {
+              const state = getOrderAfterSaleState(row);
+              return <Tag color={state.color}>{state.label}</Tag>;
+            },
           },
-          { title: '数量', dataIndex: 'quantity' },
           {
-            title: '小计',
+            title: '商品明细',
             render: (_, row) => (
-              <span className="cell-nowrap">{formatMoney(lineTotal(row.price, row.quantity))}</span>
+              <Typography.Text ellipsis={{ showTooltip: true }} style={{ maxWidth: 280, marginBottom: 0 }}>
+                {summarizeOrderItems(row)}
+              </Typography.Text>
             ),
           },
           {
+            title: '合计',
+            render: (_, row) => <span className="cell-nowrap">{formatMoney(orderTotal(row))}</span>,
+          },
+          {
+            title: '商品数量',
+            render: (_, row) => row.items.length,
+          },
+          {
             title: '备注',
-            dataIndex: 'note',
-            render: (v) =>
-              v ? (
+            render: (_, row) =>
+              row.note ? (
                 <Typography.Text
                   ellipsis={{ showTooltip: true }}
                   style={{ maxWidth: 180, marginBottom: 0 }}
                 >
-                  {v}
+                  {row.note}
                 </Typography.Text>
               ) : (
                 '-'
@@ -556,8 +678,14 @@ export default function ConsumptionListPage() {
             title: '操作',
             render: (_, row) => (
               <Space>
-                <Button size="small" onClick={() => copyRowToDialog(row)}>
+                <Button size="small" onClick={() => openDetail(row)}>
+                  查看详情
+                </Button>
+                <Button size="small" onClick={() => copyPurchaseToDialog(row)}>
                   复制
+                </Button>
+                <Button size="small" onClick={() => openAfterSale(row)}>
+                  售后
                 </Button>
                 <Button size="small" status="danger" onClick={() => removePurchase(row)}>
                   删除
@@ -646,17 +774,35 @@ export default function ConsumptionListPage() {
                   ))}
                 </Select>
               </div>
+              {productOptions.find((p) => p.id === row.productId)?.trackingMode === 'SERIALIZED' && (
+                <div>
+                  <div style={{ marginBottom: 4, color: 'var(--color-text-3)' }}>库存单品</div>
+                  <Select
+                    style={{ width: 240 }}
+                    placeholder="选择具体库存单品"
+                    showSearch
+                    allowClear
+                    loading={inventoryLoading[String(row.key)]}
+                    value={row.inventoryItemId || undefined}
+                    onChange={(v) =>
+                      setItems((rows) =>
+                        rows.map((r) =>
+                          r.key === row.key ? { ...r, inventoryItemId: v || null } : r,
+                        ),
+                      )
+                    }
+                  >
+                    {(inventoryOptions[String(row.key)] ?? []).map((item) => (
+                      <Select.Option key={item.id} value={item.id}>
+                        {item.imei || item.imei2 || item.sn || `单品 ${item.id}`}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+              )}
               <div>
                 <div style={{ marginBottom: 4, color: 'var(--color-text-3)' }}>名称</div>
-                <Input
-                  style={{ width: 160 }}
-                  value={row.name}
-                  onChange={(v) =>
-                    setItems((rows) =>
-                      rows.map((r) => (r.key === row.key ? { ...r, name: v } : r)),
-                    )
-                  }
-                />
+                <Input style={{ width: 160 }} value={row.name} disabled />
               </div>
               <div>
                 <div style={{ marginBottom: 4, color: 'var(--color-text-3)' }}>价格</div>
@@ -680,11 +826,12 @@ export default function ConsumptionListPage() {
                   min={1}
                   style={{ width: 80 }}
                   value={row.quantity}
+                  disabled={
+                    productOptions.find((p) => p.id === row.productId)?.trackingMode === 'SERIALIZED'
+                  }
                   onChange={(v) =>
                     setItems((rows) =>
-                      rows.map((r) =>
-                        r.key === row.key ? { ...r, quantity: v ?? 1 } : r,
-                      ),
+                      rows.map((r) => (r.key === row.key ? { ...r, quantity: v ?? 1 } : r)),
                     )
                   }
                 />
@@ -706,6 +853,145 @@ export default function ConsumptionListPage() {
         <Button type="outline" onClick={() => setItems((rows) => [...rows, newLine()])}>
           添加一行
         </Button>
+      </Modal>
+
+      <Modal
+        title="消费详情"
+        visible={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={
+          <Space>
+            <Button onClick={() => setDetailVisible(false)}>关闭</Button>
+            <Button
+              type="primary"
+              onClick={() => {
+                if (selectedOrder) openAfterSale(selectedOrder);
+              }}
+            >
+              发起售后
+            </Button>
+          </Space>
+        }
+        unmountOnExit
+        style={{ width: 840 }}
+      >
+        {selectedOrder ? (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <Card size="small">
+              <Space direction="vertical" size={4}>
+                <div>
+                  购买者：{selectedOrder.buyer?.name ?? '-'}
+                  {selectedOrder.buyer?.phone ? ` / ${selectedOrder.buyer.phone}` : ''}
+                </div>
+                <div>购买时间：{new Date(selectedOrder.purchasedAt).toLocaleString('zh-CN')}</div>
+                <div>备注：{selectedOrder.note || '-'}</div>
+                <div>合计：{formatMoney(orderTotal(selectedOrder))}</div>
+              </Space>
+            </Card>
+            <Card title="售后记录" size="small">
+              <Space direction="vertical" style={{ width: '100%' }} size={12}>
+                {(selectedOrder.afterSales ?? []).length ? (
+                  (selectedOrder.afterSales ?? []).map((afterSale) => {
+                    const state = afterSaleStatusLabel(afterSale.status);
+                    return (
+                      <Card key={afterSale.id} size="small">
+                        <Space direction="vertical" size={4}>
+                          <div>
+                            售后单号：{afterSale.id} <Tag color="arcoblue">{afterSaleTypeLabel(afterSale.type)}</Tag>{' '}
+                            <Tag color={state.color}>{state.label}</Tag>
+                          </div>
+                          <div>涉及商品：{formatAfterSaleItems(afterSale)}</div>
+                        </Space>
+                      </Card>
+                    );
+                  })
+                ) : (
+                  <Typography.Text type="secondary">暂无售后记录</Typography.Text>
+                )}
+              </Space>
+            </Card>
+            <Table
+              rowKey="id"
+              data={selectedOrder.items}
+              pagination={false}
+              columns={[
+                { title: '商品名称', dataIndex: 'name' },
+                {
+                  title: '售后状态',
+                  render: (_, item) => {
+                    const status = item.status ?? 'SOLD';
+                    if (status === 'RETURNED' || status === 'EXCHANGED') return <Tag color="green">已售后</Tag>;
+                    if (status === 'EXCHANGING') return <Tag color="orange">售后中</Tag>;
+                    return <Tag color="gray">未售后</Tag>;
+                  },
+                },
+                {
+                  title: '品牌',
+                  render: (_, item) => item.model?.brand?.name ?? item.product?.brand?.name ?? '-',
+                },
+                {
+                  title: '型号',
+                  render: (_, item) => item.model?.name ?? item.product?.name ?? '-',
+                },
+                {
+                  title: '卖价',
+                  dataIndex: 'price',
+                  render: (v) => <span className="cell-nowrap">{formatMoney(v)}</span>,
+                },
+                { title: '数量', dataIndex: 'quantity' },
+                {
+                  title: '小计',
+                  render: (_, item) => (
+                    <span className="cell-nowrap">{formatMoney(lineTotal(item.price, item.quantity))}</span>
+                  ),
+                },
+                {
+                  title: '库存单品',
+                  render: (_, item) =>
+                    item.inventoryItem ? (
+                      item.inventoryItem.imei || item.inventoryItem.imei2 || item.inventoryItem.sn || `单品 ${item.inventoryItem.id}`
+                    ) : (
+                      '-'
+                    ),
+                },
+              ]}
+            />
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="发起售后"
+        visible={afterSaleVisible}
+        onOk={submitAfterSale}
+        onCancel={() => setAfterSaleVisible(false)}
+        unmountOnExit
+        style={{ width: 760 }}
+      >
+        <Form form={afterSaleForm} layout="vertical">
+          <Form.Item label="售后类型" field="type" rules={[{ required: true }]}>
+            <Select placeholder="选择类型">
+              <Select.Option value="RETURN">退货</Select.Option>
+              <Select.Option value="EXCHANGE">换货</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item
+            label="商品明细"
+            field="salesOrderItemIds"
+            rules={[{ required: true, message: '请选择至少一条明细' }]}
+          >
+            <Select mode="multiple" allowClear placeholder="可多选明细">
+              {selectedOrder?.items.map((item) => (
+                <Select.Option key={item.id} value={item.id}>
+                  {`${item.name} × ${item.quantity}`}
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item label="备注" field="note">
+            <Input.TextArea rows={2} maxLength={500} showWordLimit placeholder="选填" />
+          </Form.Item>
+        </Form>
       </Modal>
     </>
   );

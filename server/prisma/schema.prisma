@@ -18,21 +18,43 @@ model Buyer {
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   purchases         Purchase[]
+  salesOrders       SalesOrder[]
+  repairOrders      RepairOrder[]
+  serviceCards      ServiceCard[]
+  serviceOrders     ServiceOrder[]
+  photos            BuyerPhoto[]
   birthdayReminders BirthdayReminder[]
 
   @@index([name])
   @@map("buyers")
 }
 
+model BuyerPhoto {
+  id        BigInt   @id @default(autoincrement())
+  buyerId   BigInt   @map("buyer_id")
+  fileName  String   @map("file_name") @db.VarChar(255)
+  url       String   @db.VarChar(500)
+  mimeType  String   @map("mime_type") @db.VarChar(100)
+  size      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  buyer Buyer @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+
+  @@index([buyerId])
+  @@map("buyer_photos")
+}
+
 model ProductCategory {
-  id                BigInt   @id @default(autoincrement())
-  name              String   @db.VarChar(100)
-  code              String   @unique @db.VarChar(50)
+  id        BigInt   @id @default(autoincrement())
+  name      String   @db.VarChar(100)
+  code      String   @unique @db.VarChar(50)
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
-  products Product[]
-  brands   Brand[]
+  products        Product[]
+  brands          Brand[]
+  brandCategories BrandCategory[]
+  productModels   ProductModel[]
 
   @@map("product_categories")
 }
@@ -43,11 +65,242 @@ model Brand {
   categoryId BigInt?  @map("category_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
-  category ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  products Product[]
+  category      ProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  products      Product[]
+  categories    BrandCategory[]
+  productModels ProductModel[]
 
   @@index([categoryId])
   @@map("brands")
+}
+
+model BrandCategory {
+  id         BigInt @id @default(autoincrement())
+  brandId    BigInt @map("brand_id")
+  categoryId BigInt @map("category_id")
+
+  brand    Brand           @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, categoryId])
+  @@index([categoryId])
+  @@map("brand_categories")
+}
+
+enum ProductTrackingMode {
+  SERIALIZED
+  QUANTITY
+}
+
+enum SpecValueType {
+  TEXT
+  NUMBER
+  MONEY
+  SINGLE_SELECT
+  MULTI_SELECT
+  DATE
+}
+
+model ProductModel {
+  id               BigInt              @id @default(autoincrement())
+  categoryId       BigInt              @map("category_id")
+  brandId          BigInt              @map("brand_id")
+  name             String              @db.VarChar(200)
+  trackingMode     ProductTrackingMode @default(QUANTITY) @map("tracking_mode")
+  active           Boolean             @default(true)
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+
+  category          ProductCategory       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brand             Brand                 @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  specDefinitions   ModelSpecDefinition[]
+  inventoryItems    InventoryItem[]
+  inventoryBatches  InventoryBatch[]
+  stockInItems      StockInItem[]
+  salesOrderItems   SalesOrderItem[]
+  repairOrderItems  RepairOrderItem[]
+  serviceOrderItems ServiceOrderItem[]
+  stockOutItems     StockOutItem[]
+
+  @@unique([categoryId, brandId, name])
+  @@index([brandId])
+  @@map("product_models")
+}
+
+model ModelSpecDefinition {
+  id          BigInt        @id @default(autoincrement())
+  modelId     BigInt        @map("model_id")
+  name        String        @db.VarChar(100)
+  code        String        @db.VarChar(80)
+  valueType   SpecValueType @default(TEXT) @map("value_type")
+  required    Boolean       @default(false)
+  uniqueValue Boolean       @default(false) @map("unique_value")
+  options     Json?
+  sortOrder   Int           @default(0) @map("sort_order")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  model ProductModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, code])
+  @@index([modelId])
+  @@map("model_spec_definitions")
+}
+
+enum InventoryStatus {
+  IN_STOCK
+  SOLD
+  OUT_OF_STOCK
+  RETURNED_IN_STOCK
+  EXCHANGING
+  REPAIR_RESERVED
+  SCRAPPED
+}
+
+model InventoryItem {
+  id            BigInt          @id @default(autoincrement())
+  modelId       BigInt          @map("model_id")
+  stockInItemId BigInt?         @map("stock_in_item_id")
+  status        InventoryStatus @default(IN_STOCK)
+  costPrice     Decimal?        @map("cost_price") @db.Decimal(12, 2)
+  attributes    Json?
+  imei          String?         @db.VarChar(80)
+  imei2         String?         @db.VarChar(80)
+  sn            String?         @db.VarChar(100)
+  createdAt     DateTime        @default(now()) @map("created_at")
+  updatedAt     DateTime        @updatedAt @map("updated_at")
+
+  model         ProductModel           @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  stockInItem   StockInItem?           @relation(fields: [stockInItemId], references: [id], onDelete: SetNull)
+  salesItems    SalesOrderItem[]
+  repairOrderItems RepairOrderItem[]
+  serviceOrderItems ServiceOrderItem[]
+  ledgers       InventoryLedger[]
+  uniqueValues  InventoryUniqueValue[]
+  stockOutItems StockOutItem[]
+
+  @@unique([imei])
+  @@unique([imei2])
+  @@unique([sn])
+  @@index([modelId, status])
+  @@map("inventory_items")
+}
+
+model InventoryUniqueValue {
+  id              BigInt @id @default(autoincrement())
+  modelId         BigInt @map("model_id")
+  inventoryItemId BigInt @map("inventory_item_id")
+  specCode        String @map("spec_code") @db.VarChar(80)
+  value           String @db.VarChar(255)
+
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, specCode, value])
+  @@index([inventoryItemId])
+  @@map("inventory_unique_values")
+}
+
+model InventoryBatch {
+  id             BigInt   @id @default(autoincrement())
+  modelId        BigInt   @map("model_id")
+  attributes     Json?
+  quantityOnHand Int      @default(0) @map("quantity_on_hand")
+  costPrice      Decimal? @map("cost_price") @db.Decimal(12, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  model ProductModel @relation(fields: [modelId], references: [id], onDelete: Restrict)
+
+  @@index([modelId])
+  @@map("inventory_batches")
+}
+
+model StockInOrder {
+  id        BigInt   @id @default(autoincrement())
+  source    String?  @db.VarChar(100)
+  note      String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  items StockInItem[]
+
+  @@map("stock_in_orders")
+}
+
+model StockInItem {
+  id         BigInt   @id @default(autoincrement())
+  orderId    BigInt   @map("order_id")
+  modelId    BigInt   @map("model_id")
+  quantity   Int      @default(1)
+  costPrice  Decimal? @map("cost_price") @db.Decimal(12, 2)
+  attributes Json?
+
+  order          StockInOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  model          ProductModel    @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  inventoryItems InventoryItem[]
+
+  @@index([orderId])
+  @@index([modelId])
+  @@map("stock_in_items")
+}
+
+model StockOutOrder {
+  id          BigInt   @id @default(autoincrement())
+  sourceType  String?  @map("source_type") @db.VarChar(50)
+  sourceRefId BigInt?  @map("source_ref_id")
+  reason      String?  @db.VarChar(100)
+  note        String?  @db.VarChar(500)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  items StockOutItem[]
+
+  @@map("stock_out_orders")
+}
+
+model StockOutItem {
+  id              BigInt  @id @default(autoincrement())
+  orderId         BigInt  @map("order_id")
+  modelId         BigInt  @map("model_id")
+  inventoryItemId BigInt? @map("inventory_item_id")
+  quantity        Int     @default(1)
+
+  order         StockOutOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  model         ProductModel   @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([modelId])
+  @@index([inventoryItemId])
+  @@map("stock_out_items")
+}
+
+enum InventoryLedgerType {
+  STOCK_IN
+  STOCK_OUT
+  SALE_OUT
+  RETURN_IN
+  EXCHANGE_OUT
+  EXCHANGE_IN
+  REPAIR_OUT
+  SERVICE_OUT
+  ADJUST
+}
+
+model InventoryLedger {
+  id              BigInt              @id @default(autoincrement())
+  type            InventoryLedgerType
+  modelId         BigInt?             @map("model_id")
+  inventoryItemId BigInt?             @map("inventory_item_id")
+  quantity        Int
+  refType         String?             @map("ref_type") @db.VarChar(50)
+  refId           BigInt?             @map("ref_id")
+  note            String?             @db.VarChar(500)
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([modelId])
+  @@index([inventoryItemId])
+  @@index([refType, refId])
+  @@map("inventory_ledgers")
 }
 
 model Product {
@@ -86,9 +339,9 @@ model Purchase {
 }
 
 model PurchaseItem {
-  id         BigInt  @id @default(autoincrement())
-  purchaseId BigInt  @map("purchase_id")
-  productId  BigInt? @map("product_id")
+  id         BigInt   @id @default(autoincrement())
+  purchaseId BigInt   @map("purchase_id")
+  productId  BigInt?  @map("product_id")
   name       String   @db.VarChar(200)
   price      Decimal  @db.Decimal(12, 2)
   sellPrice  Decimal? @map("sell_price") @db.Decimal(12, 2)
@@ -99,6 +352,220 @@ model PurchaseItem {
 
   @@index([purchaseId])
   @@map("purchase_items")
+}
+
+enum SalesOrderStatus {
+  COMPLETED
+  PARTIALLY_RETURNED
+  RETURNED
+  CANCELLED
+}
+
+enum SalesOrderItemStatus {
+  SOLD
+  RETURNED
+  EXCHANGING
+  EXCHANGED
+}
+
+model SalesOrder {
+  id          BigInt           @id @default(autoincrement())
+  buyerId     BigInt           @map("buyer_id")
+  purchasedAt DateTime         @map("purchased_at")
+  note        String?          @db.VarChar(500)
+  status      SalesOrderStatus @default(COMPLETED)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  buyer      Buyer            @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  items      SalesOrderItem[]
+  afterSales AfterSaleOrder[]
+
+  @@index([buyerId, purchasedAt])
+  @@map("sales_orders")
+}
+
+model SalesOrderItem {
+  id              BigInt               @id @default(autoincrement())
+  orderId         BigInt               @map("order_id")
+  modelId         BigInt?              @map("model_id")
+  inventoryItemId BigInt?              @map("inventory_item_id")
+  name            String               @db.VarChar(200)
+  price           Decimal              @db.Decimal(12, 2)
+  costPrice       Decimal?             @map("cost_price") @db.Decimal(12, 2)
+  quantity        Int                  @default(1)
+  attributes      Json?
+  status          SalesOrderItemStatus @default(SOLD)
+
+  order          SalesOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  model          ProductModel?   @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  inventoryItem  InventoryItem?  @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  afterSaleItems AfterSaleItem[]
+
+  @@index([orderId])
+  @@index([modelId])
+  @@index([inventoryItemId])
+  @@map("sales_order_items")
+}
+
+enum AfterSaleType {
+  RETURN
+  EXCHANGE
+}
+
+enum AfterSaleStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  CANCELLED
+}
+
+model AfterSaleOrder {
+  id           BigInt          @id @default(autoincrement())
+  salesOrderId BigInt          @map("sales_order_id")
+  type         AfterSaleType
+  status       AfterSaleStatus @default(PENDING)
+  note         String?         @db.VarChar(500)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  completedAt  DateTime?       @map("completed_at")
+
+  salesOrder SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  items      AfterSaleItem[]
+
+  @@index([salesOrderId])
+  @@index([status])
+  @@map("after_sale_orders")
+}
+
+model AfterSaleItem {
+  id                 BigInt  @id @default(autoincrement())
+  afterSaleOrderId   BigInt  @map("after_sale_order_id")
+  salesOrderItemId   BigInt  @map("sales_order_item_id")
+  quantity           Int     @default(1)
+  newInventoryItemId BigInt? @map("new_inventory_item_id")
+  newAttributes      Json?
+
+  afterSaleOrder AfterSaleOrder @relation(fields: [afterSaleOrderId], references: [id], onDelete: Cascade)
+  salesOrderItem SalesOrderItem @relation(fields: [salesOrderItemId], references: [id], onDelete: Restrict)
+
+  @@index([afterSaleOrderId])
+  @@index([salesOrderItemId])
+  @@map("after_sale_items")
+}
+
+enum RepairOrderStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+model RepairOrder {
+  id               BigInt            @id @default(autoincrement())
+  buyerId          BigInt?           @map("buyer_id")
+  salesOrderItemId BigInt?           @map("sales_order_item_id")
+  externalDevice   String?           @map("external_device") @db.VarChar(300)
+  fault            String?           @db.VarChar(500)
+  repairFee        Decimal           @default(0) @map("repair_fee") @db.Decimal(12, 2)
+  repairedAt       DateTime          @map("repaired_at")
+  status           RepairOrderStatus @default(OPEN)
+  note             String?           @db.VarChar(500)
+  createdAt        DateTime          @default(now()) @map("created_at")
+
+  buyer Buyer?            @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  items RepairOrderItem[]
+
+  @@index([buyerId])
+  @@map("repair_orders")
+}
+
+model RepairOrderItem {
+  id              BigInt  @id @default(autoincrement())
+  repairOrderId   BigInt  @map("repair_order_id")
+  modelId         BigInt? @map("model_id")
+  inventoryItemId BigInt? @map("inventory_item_id")
+  name            String  @db.VarChar(200)
+  price           Decimal @db.Decimal(12, 2)
+  costPrice       Decimal? @map("cost_price") @db.Decimal(12, 2)
+  quantity        Int     @default(1)
+
+  repairOrder RepairOrder   @relation(fields: [repairOrderId], references: [id], onDelete: Cascade)
+  model       ProductModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([repairOrderId])
+  @@index([modelId])
+  @@index([inventoryItemId])
+  @@map("repair_order_items")
+}
+
+model ServiceCardPlan {
+  id             BigInt   @id @default(autoincrement())
+  name           String   @db.VarChar(100)
+  rechargeAmount Decimal  @map("recharge_amount") @db.Decimal(12, 2)
+  serviceName    String   @map("service_name") @db.VarChar(100)
+  totalTimes     Int      @map("total_times")
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  cards ServiceCard[]
+
+  @@map("service_card_plans")
+}
+
+model ServiceCard {
+  id             BigInt   @id @default(autoincrement())
+  buyerId        BigInt   @map("buyer_id")
+  planId         BigInt?  @map("plan_id")
+  serviceName    String   @map("service_name") @db.VarChar(100)
+  rechargeAmount Decimal  @map("recharge_amount") @db.Decimal(12, 2)
+  totalTimes     Int      @map("total_times")
+  remainingTimes Int      @map("remaining_times")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  buyer         Buyer            @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  plan          ServiceCardPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  serviceOrders ServiceOrder[]
+
+  @@index([buyerId])
+  @@map("service_cards")
+}
+
+model ServiceOrder {
+  id            BigInt   @id @default(autoincrement())
+  buyerId       BigInt   @map("buyer_id")
+  serviceCardId BigInt?  @map("service_card_id")
+  servedAt      DateTime @map("served_at")
+  timesUsed     Int      @default(1) @map("times_used")
+  note          String?  @db.VarChar(500)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  buyer       Buyer              @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  serviceCard ServiceCard?       @relation(fields: [serviceCardId], references: [id], onDelete: SetNull)
+  items       ServiceOrderItem[]
+
+  @@index([buyerId])
+  @@index([serviceCardId])
+  @@map("service_orders")
+}
+
+model ServiceOrderItem {
+  id              BigInt  @id @default(autoincrement())
+  serviceOrderId  BigInt  @map("service_order_id")
+  modelId         BigInt? @map("model_id")
+  inventoryItemId BigInt? @map("inventory_item_id")
+  name            String  @db.VarChar(200)
+  price           Decimal @db.Decimal(12, 2)
+  costPrice       Decimal? @map("cost_price") @db.Decimal(12, 2)
+  quantity        Int     @default(1)
+
+  serviceOrder ServiceOrder  @relation(fields: [serviceOrderId], references: [id], onDelete: Cascade)
+  model        ProductModel? @relation(fields: [modelId], references: [id], onDelete: SetNull)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([serviceOrderId])
+  @@index([modelId])
+  @@index([inventoryItemId])
+  @@map("service_order_items")
 }
 
 model BirthdayReminderSettings {

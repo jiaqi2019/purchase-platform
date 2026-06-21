@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Button, Form, Input, Message, Modal, Select, Space, Table } from '@arco-design/web-react';
-import { api, errMessage } from '../api/http-client';
+import { api, errMessage, isFormValidationError } from '../api/http-client';
 import { confirmDelete } from '../utils/confirm-delete';
 import type { Brand, Id, ProductCategory } from '../types/api-types';
 
@@ -31,6 +31,10 @@ export default function BrandsPage() {
   const openCreate = () => {
     setEditId(null);
     form.resetFields();
+    const phoneCategory = categories.find((c) => c.name === '手机');
+    if (phoneCategory) {
+      form.setFieldsValue({ categoryId: phoneCategory.id });
+    }
     setVisible(true);
   };
 
@@ -50,7 +54,7 @@ export default function BrandsPage() {
       setVisible(false);
       load();
     } catch (e) {
-      if (e && typeof e === 'object' && 'error' in e) return;
+      if (isFormValidationError(e)) return;
       Message.error(errMessage(e));
     }
   };

@@ -5,6 +5,10 @@ import prisma from '../prisma';
 import { serialize } from '../utils/serialize';
 import { AppError } from '../utils/errors';
 import { generateCategoryCode } from '../utils/category-code';
+import {
+  assertLegacyProductsUnused,
+  deleteUnusedProductModels,
+} from '../services/product-model-delete';
 
 const router = new Router({ prefix: '/product-categories' });
 
@@ -74,17 +78,16 @@ router.patch('/:id', async (ctx: Context) => {
 
 router.delete('/:id', async (ctx: Context) => {
   const id = BigInt(ctx.params.id);
-  const [pc, pb] = await Promise.all([
-    prisma.product.count({ where: { categoryId: id } }),
-    prisma.brand.count({ where: { categoryId: id } }),
-  ]);
-  if (pc > 0 || pb > 0) {
-    throw new AppError(409, 'CONFLICT', '分类下仍有商品或品牌，无法删除');
-  }
   try {
-    await prisma.productCategory.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await assertLegacyProductsUnused(tx, { categoryId: id });
+      await tx.product.deleteMany({ where: { categoryId: id } });
+      await deleteUnusedProductModels(tx, { categoryId: id });
+      await tx.productCategory.delete({ where: { id } });
+    });
     ctx.status = 204;
-  } catch {
+  } catch (e) {
+    if (e instanceof AppError) throw e;
     throw new AppError(404, 'NOT_FOUND', '分类不存在');
   }
 });

@@ -47,17 +47,62 @@ export interface Product {
   brand?: Brand | null;
 }
 
+export type ProductTrackingMode = 'SERIALIZED' | 'QUANTITY';
+export type SpecValueType = 'TEXT' | 'NUMBER' | 'SINGLE_SELECT' | 'MULTI_SELECT' | 'DATE';
+
+export interface ModelSpecDefinition {
+  id: Id;
+  modelId: Id;
+  name: string;
+  code: string;
+  valueType: SpecValueType;
+  required: boolean;
+  uniqueValue: boolean;
+  options: unknown;
+  sortOrder: number;
+}
+
+export interface ProductModel {
+  id: Id;
+  categoryId: Id;
+  brandId: Id;
+  name: string;
+  trackingMode: ProductTrackingMode;
+  active: boolean;
+  stock?: number;
+  category?: ProductCategory;
+  brand?: Brand;
+  specDefinitions?: ModelSpecDefinition[];
+}
+
+export interface InventoryItem {
+  id: Id;
+  modelId: Id;
+  status: string;
+  costPrice: string | number | null;
+  attributes: Record<string, unknown> | null;
+  imei: string | null;
+  imei2: string | null;
+  sn: string | null;
+  model?: ProductModel;
+}
+
 export interface PurchaseItem {
   id: Id;
   purchaseId: Id;
   productId: Id | null;
+  modelId?: Id | null;
+  inventoryItemId?: Id | null;
   name: string;
   /** 购买价 */
   price: string | number;
   /** 售卖价快照 */
   sellPrice: string | number | null;
   quantity: number;
+  status?: string;
   product?: Product | null;
+  model?: ProductModel | null;
+  inventoryItem?: InventoryItem | null;
 }
 
 export interface Purchase {
@@ -68,6 +113,15 @@ export interface Purchase {
   createdAt: string;
   buyer?: Buyer;
   items: PurchaseItem[];
+  afterSales?: Array<{
+    id: Id;
+    type: string;
+    status: string;
+    items: Array<{
+      salesOrderItemId: Id;
+      quantity: number;
+    }>;
+  }>;
 }
 
 export interface PurchaseQueryResult {
@@ -114,4 +168,24 @@ export interface PurchaseItemInput {
   price: string | number;
   sellPrice?: string | number | null;
   quantity: number;
+}
+
+export interface BuyerPhoto {
+  id: Id;
+  buyerId: Id;
+  fileName: string;
+  url: string;
+  mimeType: string;
+  size: number;
+  createdAt: string;
+}
+
+export interface ServiceCard {
+  id: Id;
+  buyerId: Id;
+  serviceName: string;
+  rechargeAmount: string | number;
+  totalTimes: number;
+  remainingTimes: number;
+  buyer?: Buyer;
 }

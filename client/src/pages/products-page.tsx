@@ -11,7 +11,7 @@ import {
   Space,
   Table,
 } from "@arco-design/web-react";
-import { api, errMessage } from "../api/http-client";
+import { api, errMessage, isFormValidationError } from "../api/http-client";
 import { confirmDelete } from "../utils/confirm-delete";
 import type { Brand, Id, PaginatedList, Product, ProductCategory } from "../types/api-types";
 import { formatMoney, toInputNumber } from "../utils/format";
@@ -117,7 +117,7 @@ export default function ProductsPage() {
       setVisible(false);
       void loadProducts(page);
     } catch (e) {
-      if (e && typeof e === "object" && "error" in e) return;
+      if (isFormValidationError(e)) return;
       Message.error(errMessage(e));
     }
   };

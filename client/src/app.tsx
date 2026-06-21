@@ -1,11 +1,21 @@
 import { Layout, Menu } from '@arco-design/web-react';
-import { IconUser, IconTag, IconStorage, IconList, IconTrophy, IconCalendar } from '@arco-design/web-react/icon';
+import { IconUser, IconTag, IconStorage, IconList, IconTrophy, IconCalendar, IconTool, IconGift, IconSwap } from '@arco-design/web-react/icon';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import BuyersPage from './pages/buyers-page';
 import CategoriesPage from './pages/categories-page';
 import BrandsPage from './pages/brands-page';
-import ProductsPage from './pages/products-page';
+import ProductModelsPage from './pages/product-models-page';
+import ProductModelCreatePage from './pages/product-model-create-page';
+import StockInPage from './pages/stock-in-page';
+import StockInCreatePage from './pages/stock-in-create-page';
+import StockOutCreatePage from './pages/stock-out-create-page';
+import StockInDetailPage from './pages/stock-in-detail-page';
+import InventoryPage from './pages/inventory-page';
 import ConsumptionListPage from './pages/consumption-list-page';
+import AfterSalesPage from './pages/after-sales-page';
+import RepairOrdersPage from './pages/repair-orders-page';
+import ServiceCardsPage from './pages/service-cards-page';
+import ProfitReportPage from './pages/profit-report-page';
 import LeaderboardPage from './pages/leaderboard-page';
 import BirthdayRemindersPage from './pages/birthday-reminders-page';
 
@@ -15,8 +25,14 @@ const menuItems = [
   { key: '/buyers', label: '购买者', icon: <IconUser /> },
   { key: '/categories', label: '商品分类', icon: <IconTag /> },
   { key: '/brands', label: '品牌', icon: <IconTag /> },
-  { key: '/products', label: '商品入库', icon: <IconStorage /> },
-  { key: '/purchases', label: '消费列表', icon: <IconList /> },
+  { key: '/models', label: '型号规格', icon: <IconTag /> },
+  { key: '/stock-in', label: '出入库', icon: <IconStorage /> },
+  { key: '/inventory', label: '库存查询', icon: <IconStorage /> },
+  { key: '/purchases', label: '订单列表', icon: <IconList /> },
+  { key: '/after-sales', label: '售后订单', icon: <IconSwap /> },
+  { key: '/repairs', label: '维修订单', icon: <IconTool /> },
+  { key: '/service-cards', label: '次卡服务', icon: <IconGift /> },
+  { key: '/profit-report', label: '成本利润', icon: <IconList /> },
   { key: '/leaderboard', label: '消费排行', icon: <IconTrophy /> },
   { key: '/birthday-reminders', label: '生日提醒', icon: <IconCalendar /> },
 ];
@@ -49,9 +65,19 @@ export default function App() {
             <Route path="/buyers" element={<BuyersPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/brands" element={<BrandsPage />} />
-            <Route path="/products" element={<ProductsPage />} />
+            <Route path="/models" element={<ProductModelsPage />} />
+            <Route path="/models/new" element={<ProductModelCreatePage />} />
+            <Route path="/stock-in" element={<StockInPage />} />
+            <Route path="/stock-in/new" element={<StockInCreatePage />} />
+            <Route path="/stock-in/out/new" element={<StockOutCreatePage />} />
+            <Route path="/stock-in/:id" element={<StockInDetailPage />} />
+            <Route path="/inventory" element={<InventoryPage />} />
             <Route path="/purchases" element={<ConsumptionListPage />} />
             <Route path="/purchases/*" element={<Navigate to="/purchases" replace />} />
+            <Route path="/after-sales" element={<AfterSalesPage />} />
+            <Route path="/repairs" element={<RepairOrdersPage />} />
+            <Route path="/service-cards" element={<ServiceCardsPage />} />
+            <Route path="/profit-report" element={<ProfitReportPage />} />
             <Route path="/leaderboard" element={<LeaderboardPage />} />
             <Route path="/birthday-reminders" element={<BirthdayRemindersPage />} />
           </Routes>
