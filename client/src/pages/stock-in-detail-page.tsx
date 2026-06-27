@@ -20,6 +20,18 @@ interface StockInDetail {
   }>;
 }
 
+interface StockInDisplayRow {
+  id: string;
+  categoryName?: string;
+  brandName?: string;
+  modelName?: string;
+  quantity: number;
+  costPrice: string | number | null;
+  attributes: Record<string, unknown> | null;
+  inventoryItemId?: string;
+  status?: string;
+}
+
 function formatAttributes(attributes?: Record<string, unknown> | null): string {
   if (!attributes) return '-';
   const entries = Object.entries(attributes).filter(([, value]) => value !== '' && value != null);
@@ -40,6 +52,35 @@ export default function StockInDetailPage() {
       .catch((e) => Message.error(errMessage(e)));
   }, [id]);
 
+  const rows: StockInDisplayRow[] =
+    detail?.items.flatMap((item) => {
+      const base = {
+        categoryName: item.model?.category?.name,
+        brandName: item.model?.brand?.name,
+        modelName: item.model?.name,
+      };
+      if (item.model?.trackingMode === 'SERIALIZED') {
+        return (item.inventoryItems ?? []).map((inventoryItem) => ({
+          ...base,
+          id: `inventory-${inventoryItem.id}`,
+          inventoryItemId: inventoryItem.id,
+          status: inventoryItem.status,
+          quantity: 1,
+          costPrice: inventoryItem.costPrice,
+          attributes: inventoryItem.attributes,
+        }));
+      }
+      return [
+        {
+          ...base,
+          id: `item-${item.id}`,
+          quantity: item.quantity,
+          costPrice: item.costPrice,
+          attributes: item.attributes,
+        },
+      ];
+    }) ?? [];
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -51,7 +92,7 @@ export default function StockInDetailPage() {
           column={2}
           data={[
             { label: '单号', value: detail?.id ?? '-' },
-            { label: '来源', value: detail?.source || '-' },
+            { label: '采购渠道', value: detail?.source || '-' },
             {
               label: '时间',
               value: detail?.createdAt ? new Date(detail.createdAt).toLocaleString('zh-CN') : '-',
@@ -62,32 +103,18 @@ export default function StockInDetailPage() {
       </Card>
       <Table
         rowKey="id"
-        data={detail?.items ?? []}
+        data={rows}
         columns={[
-          { title: '品类', render: (_, row) => row.model?.category?.name ?? '-' },
-          { title: '品牌', render: (_, row) => row.model?.brand?.name ?? '-' },
-          { title: '型号', render: (_, row) => row.model?.name ?? '-' },
+          { title: '品类', dataIndex: 'categoryName', render: (v) => v || '-' },
+          { title: '品牌', dataIndex: 'brandName', render: (v) => v || '-' },
+          { title: '型号', dataIndex: 'modelName', render: (v) => v || '-' },
+          { title: '单品编号', dataIndex: 'inventoryItemId', render: (v) => v || '-' },
+          { title: '状态', dataIndex: 'status', render: (v) => v || '-' },
           { title: '数量', dataIndex: 'quantity' },
           { title: '成本价', dataIndex: 'costPrice', render: formatMoney },
           { title: '属性', render: (_, row) => formatAttributes(row.attributes) },
         ]}
       />
-      {(detail?.items ?? []).some((item) => item.model?.trackingMode === 'SERIALIZED') && (
-        <Card title="单品明细" style={{ marginTop: 16 }}>
-          <Table
-            rowKey="id"
-            data={(detail?.items ?? [])
-              .filter((item) => item.model?.trackingMode === 'SERIALIZED')
-              .flatMap((item) => item.inventoryItems ?? [])}
-            columns={[
-              { title: '编号', dataIndex: 'id' },
-              { title: '状态', dataIndex: 'status' },
-              { title: '成本价', dataIndex: 'costPrice', render: formatMoney },
-              { title: '属性', render: (_, row) => formatAttributes(row.attributes) },
-            ]}
-          />
-        </Card>
-      )}
     </>
   );
 }

@@ -5,6 +5,7 @@ import Router from '@koa/router';
 import { AppError } from './utils/errors';
 import buyersRouter from './routes/buyers';
 import buyerPhotosRouter from './routes/buyer-photos';
+import purchaseChannelsRouter from './routes/purchase-channels';
 import categoriesRouter from './routes/product-categories';
 import brandsRouter from './routes/brands';
 import productsRouter from './routes/products';
@@ -47,6 +48,7 @@ app.use(async (ctx, next) => {
 const api = new Router({ prefix: '/api' });
 api.use(buyersRouter.routes(), buyersRouter.allowedMethods());
 api.use(buyerPhotosRouter.routes(), buyerPhotosRouter.allowedMethods());
+api.use(purchaseChannelsRouter.routes(), purchaseChannelsRouter.allowedMethods());
 api.use(categoriesRouter.routes(), categoriesRouter.allowedMethods());
 api.use(brandsRouter.routes(), brandsRouter.allowedMethods());
 api.use(productsRouter.routes(), productsRouter.allowedMethods());

@@ -115,25 +115,6 @@ export default function BuyersPage() {
     });
   };
 
-  const resetAllData = () => {
-    Modal.confirm({
-      title: "清空所有数据",
-      content:
-        "这会清空当前数据库里的全部业务数据，包含购买者、订单、库存、次卡等。确定继续？",
-      onOk: async () => {
-        await api.post("/internal/reset-all-data", {
-          confirm: "RESET_ALL_DATA",
-        });
-        Message.success("已清空所有数据");
-        setVisible(false);
-        setEditId(null);
-        setPhotos([]);
-        form.resetFields();
-        await load(1);
-      },
-    });
-  };
-
   return (
     <>
       <h1 className="page-title">购买者</h1>
@@ -141,9 +122,6 @@ export default function BuyersPage() {
         <Button type="primary" onClick={openCreate}>
           新建购买者
         </Button>
-        {/* <Button status="danger" onClick={resetAllData}>
-          清空所有数据
-        </Button> */}
       </Space>
       <Table
         loading={loading}

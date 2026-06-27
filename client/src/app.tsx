@@ -2,6 +2,7 @@ import { Layout, Menu } from '@arco-design/web-react';
 import { IconUser, IconTag, IconStorage, IconList, IconTrophy, IconCalendar, IconTool, IconGift, IconSwap } from '@arco-design/web-react/icon';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import BuyersPage from './pages/buyers-page';
+import PurchaseChannelsPage from './pages/purchase-channels-page';
 import CategoriesPage from './pages/categories-page';
 import BrandsPage from './pages/brands-page';
 import ProductModelsPage from './pages/product-models-page';
@@ -23,6 +24,7 @@ const { Sider, Content } = Layout;
 
 const menuItems = [
   { key: '/buyers', label: '购买者', icon: <IconUser /> },
+  { key: '/purchase-channels', label: '采购渠道', icon: <IconTag /> },
   { key: '/categories', label: '商品分类', icon: <IconTag /> },
   { key: '/brands', label: '品牌', icon: <IconTag /> },
   { key: '/models', label: '型号规格', icon: <IconTag /> },
@@ -32,7 +34,7 @@ const menuItems = [
   { key: '/after-sales', label: '售后订单', icon: <IconSwap /> },
   { key: '/repairs', label: '维修订单', icon: <IconTool /> },
   { key: '/service-cards', label: '次卡服务', icon: <IconGift /> },
-  { key: '/profit-report', label: '成本利润', icon: <IconList /> },
+  { key: '/profit-report', label: '财务管理', icon: <IconList /> },
   { key: '/leaderboard', label: '消费排行', icon: <IconTrophy /> },
   { key: '/birthday-reminders', label: '生日提醒', icon: <IconCalendar /> },
 ];
@@ -63,6 +65,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to="/buyers" replace />} />
             <Route path="/buyers" element={<BuyersPage />} />
+            <Route path="/purchase-channels" element={<PurchaseChannelsPage />} />
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/models" element={<ProductModelsPage />} />

@@ -59,7 +59,7 @@ export default function StockInPage() {
             data={inOrders as Array<{ id: string; source?: string; createdAt?: string; items?: Array<{ model?: ProductModel; quantity: number }> }>}
             columns={[
               { title: '单号', dataIndex: 'id' },
-              { title: '来源', dataIndex: 'source', render: (v) => v || '-' },
+              { title: '采购渠道', dataIndex: 'source', render: (v) => v || '-' },
               { title: '品牌 / 型号', render: (_, r) => summarizeItems(r.items) },
               { title: '时间', dataIndex: 'createdAt', render: (v) => (v ? new Date(v).toLocaleString('zh-CN') : '-') },
               {

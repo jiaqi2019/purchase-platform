@@ -128,7 +128,7 @@ export default function ProfitReportPage() {
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
         <div>
-          <h1 className="page-title" style={{ marginBottom: 4 }}>成本利润</h1>
+          <h1 className="page-title" style={{ marginBottom: 4 }}>财务管理</h1>
           <Typography.Text type="secondary">按时间区间查看业务收入、成本、利润和次卡余额。</Typography.Text>
         </div>
         <Space>

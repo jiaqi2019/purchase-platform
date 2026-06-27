@@ -44,6 +44,19 @@ model BuyerPhoto {
   @@map("buyer_photos")
 }
 
+model PurchaseChannel {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @unique @db.VarChar(100)
+  contact   String?  @db.VarChar(100)
+  phone     String?  @db.VarChar(20)
+  note      String?  @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@map("purchase_channels")
+}
+
 model ProductCategory {
   id        BigInt   @id @default(autoincrement())
   name      String   @db.VarChar(100)

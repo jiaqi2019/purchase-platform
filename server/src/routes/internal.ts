@@ -62,6 +62,7 @@ router.post('/reset-all-data', async (ctx: Context) => {
     await tx.birthdayReminder.deleteMany({});
     await tx.birthdayReminderSettings.deleteMany({});
     await tx.buyer.deleteMany({});
+    await tx.purchaseChannel.deleteMany({});
   });
 
   ctx.body = { data: { ok: true } };

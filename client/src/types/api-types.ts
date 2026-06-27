@@ -180,6 +180,16 @@ export interface BuyerPhoto {
   createdAt: string;
 }
 
+export interface PurchaseChannel {
+  id: Id;
+  name: string;
+  contact: string | null;
+  phone: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ServiceCard {
   id: Id;
   buyerId: Id;
