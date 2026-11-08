@@ -1,0 +1,10 @@
+services:
+  web:
+    command: ['caddy', 'run', '--config', '/etc/caddy/Caddyfile.public', '--adapter', 'caddyfile']
+    ports: !override
+      - '80:80'
+      - '443:443'
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in .env}
+      SITE_USER: ${SITE_USER:?Set SITE_USER in .env}
+      SITE_PASSWORD_HASH: ${SITE_PASSWORD_HASH:?Set SITE_PASSWORD_HASH in .env}
